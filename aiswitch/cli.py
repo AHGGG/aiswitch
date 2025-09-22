@@ -20,25 +20,42 @@ def cli():
 
 @cli.command()
 @click.argument('name')
-@click.option('--key', required=True, help='API密钥')
-@click.option('--url', required=True, help='API基础URL')
-@click.option('--model', help='默认模型名称')
+@click.argument('env_pairs', nargs=-1, required=True)
 @click.option('--description', default="", help='预设描述')
 @click.option('--tags', help='标签(逗号分隔)')
-def add(name: str, key: str, url: str, model: Optional[str], description: str, tags: Optional[str]):
-    """添加新的预设配置"""
+def add(name: str, env_pairs: tuple, description: str, tags: Optional[str]):
+    """添加新的预设配置
+
+    使用方式: aiswitch add <config-name> <env_name> <env_value> [<env_name2> <env_value2> ...]
+
+    示例: aiswitch add openai API_KEY your-key API_BASE_URL https://api.openai.com/v1 API_MODEL gpt-4
+    """
     try:
+        # 验证参数数量是否为偶数
+        if len(env_pairs) == 0:
+            click.echo("Error: At least one environment variable pair (name value) is required", err=True)
+            sys.exit(1)
+
+        if len(env_pairs) % 2 != 0:
+            click.echo("Error: Environment variable arguments must come in pairs (name value)", err=True)
+            sys.exit(1)
+
+        # 解析环境变量对
+        variables = {}
+        for i in range(0, len(env_pairs), 2):
+            env_name = env_pairs[i]
+            env_value = env_pairs[i + 1]
+            variables[env_name] = env_value
+
         preset_manager = PresetManager()
 
         tag_list = []
         if tags:
             tag_list = [tag.strip() for tag in tags.split(',')]
 
-        preset = preset_manager.add_preset(
+        preset = preset_manager.add_preset_flexible(
             name=name,
-            api_key=key,
-            base_url=url,
-            model=model,
+            variables=variables,
             description=description,
             tags=tag_list
         )
@@ -46,10 +63,16 @@ def add(name: str, key: str, url: str, model: Optional[str], description: str, t
         click.echo(f"✓ Preset '{name}' added successfully")
         if description:
             click.echo(f"  Description: {description}")
-        if model:
-            click.echo(f"  Model: {model}")
         if tag_list:
             click.echo(f"  Tags: {', '.join(tag_list)}")
+
+        click.echo(f"  Environment variables:")
+        for var_name, var_value in variables.items():
+            if 'KEY' in var_name.upper():
+                display_value = f"{var_value[:8]}..." if len(var_value) > 8 else "***"
+            else:
+                display_value = var_value
+            click.echo(f"    {var_name}: {display_value}")
 
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
@@ -85,20 +108,30 @@ def remove(name: str, force: bool):
 
 @cli.command()
 @click.argument('name')
-def use(name: str):
+@click.option('--export', is_flag=True, help='输出环境变量export语句，用于eval')
+def use(name: str, export: bool):
     """切换到指定预设"""
     try:
         preset_manager = PresetManager()
         preset, applied_vars = preset_manager.use_preset(name)
 
-        click.echo(f"✓ Switched to preset '{name}'")
+        if export:
+            # 输出export语句供eval使用
+            for var, value in applied_vars.items():
+                click.echo(f'export {var}="{value}"')
+        else:
+            click.echo(f"✓ Switched to preset '{name}'")
 
-        for var, value in applied_vars.items():
-            if 'KEY' in var:
-                display_value = f"{value[:8]}..." if len(value) > 8 else "***"
-            else:
-                display_value = value
-            click.echo(f"  {var}: {display_value}")
+            for var, value in applied_vars.items():
+                if 'KEY' in var:
+                    display_value = f"{value[:8]}..." if len(value) > 8 else "***"
+                else:
+                    display_value = value
+                click.echo(f"  {var}: {display_value}")
+
+            # 提示用户如何在当前shell中应用环境变量
+            click.echo(f"\n💡 要在当前shell中应用环境变量，请运行:")
+            click.echo(f"   eval $(aiswitch use {name} --export)")
 
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
@@ -311,6 +344,65 @@ def info():
         project_config_path = Path.cwd() / ".aiswitch.yaml"
         click.echo(f"  Project config: {project_config_path}")
         click.echo(f"    Exists: {'Yes' if project_config_path.exists() else 'No'}")
+
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option('--force', is_flag=True, help='强制重新安装，即使已经安装')
+def install(force: bool):
+    """安装shell集成，使aiswitch use命令自动应用环境变量"""
+    try:
+        from .shell_integration import ShellIntegration
+
+        integration = ShellIntegration()
+
+        if integration.is_installed() and not force:
+            click.echo("✓ AISwitch shell集成已经安装")
+            click.echo("使用 --force 选项可以重新安装")
+            return
+
+        success = integration.install()
+
+        if success:
+            click.echo("✓ AISwitch shell集成安装成功!")
+            click.echo(f"已修改: {integration.get_shell_config_path()}")
+            click.echo("\n请运行以下命令之一来激活集成:")
+            click.echo(f"  source {integration.get_shell_config_path()}")
+            click.echo("  或者重新启动终端")
+            click.echo("\n安装后，你可以直接使用:")
+            click.echo("  aiswitch use <preset>  # 环境变量将自动应用到当前shell")
+        else:
+            click.echo("❌ Shell集成安装失败", err=True)
+            sys.exit(1)
+
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+def uninstall():
+    """卸载shell集成"""
+    try:
+        from .shell_integration import ShellIntegration
+
+        integration = ShellIntegration()
+
+        if not integration.is_installed():
+            click.echo("AISwitch shell集成未安装")
+            return
+
+        success = integration.uninstall()
+
+        if success:
+            click.echo("✓ AISwitch shell集成卸载成功!")
+            click.echo("请重新启动终端或重新加载shell配置文件")
+        else:
+            click.echo("❌ Shell集成卸载失败", err=True)
+            sys.exit(1)
 
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)

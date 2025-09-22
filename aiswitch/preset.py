@@ -11,6 +11,30 @@ class PresetManager:
         self.config_manager = ConfigManager()
         self.env_manager = EnvManager()
 
+    def add_preset_flexible(self, name: str, variables: Dict[str, str],
+                           description: str = "", tags: Optional[List[str]] = None) -> PresetConfig:
+        """添加新的预设配置，支持任意环境变量"""
+        if self.config_manager.preset_exists(name):
+            raise ValueError(f"Preset '{name}' already exists")
+
+        if not variables:
+            raise ValueError("At least one environment variable must be provided")
+
+        try:
+            validated_vars = self.env_manager.validate_env_variables(variables)
+        except ValueError as e:
+            raise ValueError(f"Invalid configuration: {e}")
+
+        preset = PresetConfig(
+            name=name,
+            description=description,
+            variables=validated_vars,
+            tags=tags or []
+        )
+
+        self.config_manager.save_preset(preset)
+        return preset
+
     def add_preset(self, name: str, api_key: str, base_url: str,
                    model: Optional[str] = None, description: str = "",
                    tags: Optional[List[str]] = None) -> PresetConfig:

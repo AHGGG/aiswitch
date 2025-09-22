@@ -1,6 +1,8 @@
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
+import os
+import tempfile
 import yaml
 from pydantic import BaseModel, Field
 
@@ -34,18 +36,68 @@ class ConfigManager:
         self.ensure_config_dir()
 
     def _get_config_dir(self) -> Path:
+        """获取配置目录，支持XDG规范并提供多级fallback"""
+        import os
         import platform
+        import tempfile
+
         if platform.system() == "Windows":
             return Path.home() / "AppData" / "Roaming" / "aiswitch"
-        else:
-            return Path.home() / ".config" / "aiswitch"
+
+        # 尝试XDG_CONFIG_HOME
+        xdg_config = os.environ.get('XDG_CONFIG_HOME')
+        if xdg_config:
+            config_dir = Path(xdg_config) / 'aiswitch'
+            if self._test_write_access(config_dir):
+                return config_dir
+
+        # 标准配置目录
+        standard_config = Path.home() / '.config' / 'aiswitch'
+        if self._test_write_access(standard_config):
+            return standard_config
+
+        # 用户目录fallback
+        user_config = Path.home() / '.aiswitch'
+        if self._test_write_access(user_config):
+            return user_config
+
+        # 临时目录作为最后fallback
+        temp_config = Path(tempfile.gettempdir()) / 'aiswitch' / f'user-{os.getuid()}'
+        return temp_config
+
+    def _test_write_access(self, config_dir: Path) -> bool:
+        """测试目录是否可写"""
+        try:
+            config_dir.mkdir(parents=True, exist_ok=True)
+            test_file = config_dir / '.test'
+            test_file.touch()
+            test_file.unlink()
+            return True
+        except (PermissionError, OSError):
+            return False
 
     def ensure_config_dir(self):
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-        self.presets_dir.mkdir(parents=True, exist_ok=True)
+        """确保配置目录存在，提供详细的错误信息"""
+        try:
+            self.config_dir.mkdir(parents=True, exist_ok=True)
+            self.presets_dir.mkdir(parents=True, exist_ok=True)
 
-        if not self.global_config_path.exists():
-            self.save_global_config(GlobalConfig())
+            if not self.global_config_path.exists():
+                self.save_global_config(GlobalConfig())
+        except PermissionError:
+            # 如果仍然无法创建目录，提供有用的错误信息
+            fallback_paths = [
+                Path.home() / '.aiswitch',
+                Path(tempfile.gettempdir()) / 'aiswitch' / f'user-{os.getuid()}'
+            ]
+
+            error_msg = f"无法创建配置目录: {self.config_dir}\n"
+            error_msg += "可能的解决方案:\n"
+            error_msg += f"1. 修复权限: sudo chown -R $USER:$USER ~/.config\n"
+            error_msg += f"2. 使用备用目录: export XDG_CONFIG_HOME={fallback_paths[0].parent}\n"
+            error_msg += f"3. 临时目录将自动使用: {fallback_paths[1]}"
+
+            raise PermissionError(error_msg)
 
     def get_global_config(self) -> GlobalConfig:
         try:
