@@ -1,0 +1,43 @@
+[project]
+name = "aiswitch"
+version = "0.1.0"
+description = "A lightweight command-line tool for switching between different AI API service providers"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.0.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0.0",
+]
+keywords = ["ai", "api", "cli", "configuration", "environment"]
+authors = [
+    {name = "AISwitch Contributors", email = "aiswitch@example.com"}
+]
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Systems Administration",
+]
+
+[project.scripts]
+aiswitch = "aiswitch.cli:main"
+
+[project.urls]
+"Homepage" = "https://github.com/example/aiswitch"
+"Bug Reports" = "https://github.com/example/aiswitch/issues"
+"Source" = "https://github.com/example/aiswitch"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["aiswitch"]
