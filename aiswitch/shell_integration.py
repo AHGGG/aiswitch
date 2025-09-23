@@ -204,6 +204,105 @@ export -f aiswitch'''
             print(f"卸载失败: {e}")
             return False
 
+    def save_env_vars(self, env_vars: dict, preset_name: str) -> bool:
+        """持久化环境变量到shell配置文件"""
+        config_path = self.get_shell_config_path()
+        env_marker_start = f"# >>> AISwitch environment variables ({preset_name}) >>>"
+        env_marker_end = f"# <<< AISwitch environment variables ({preset_name}) <<<"
+
+        try:
+            # 确保配置文件存在
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # 读取现有内容
+            existing_content = ""
+            if config_path.exists():
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    existing_content = f.read()
+
+            # 移除之前的环境变量配置(如果存在)
+            lines = existing_content.split('\n')
+            new_lines = []
+            in_env_block = False
+
+            for line in lines:
+                # 检查是否是任何AISwitch环境变量块的开始
+                if line.strip().startswith("# >>> AISwitch environment variables") and line.strip().endswith(">>>"):
+                    in_env_block = True
+                    continue
+                elif line.strip().startswith("# <<< AISwitch environment variables") and line.strip().endswith("<<<"):
+                    in_env_block = False
+                    continue
+
+                if not in_env_block:
+                    new_lines.append(line)
+
+            # 准备新的环境变量配置
+            env_exports = []
+            for var, value in env_vars.items():
+                # 转义特殊字符
+                escaped_value = value.replace('"', '\\"').replace('$', '\\$').replace('`', '\\`')
+                env_exports.append(f'export {var}="{escaped_value}"')
+
+            env_content = f'''
+{env_marker_start}
+{chr(10).join(env_exports)}
+{env_marker_end}'''
+
+            # 添加新的环境变量配置到文件末尾
+            new_content = '\n'.join(new_lines) + env_content
+
+            # 写入新内容
+            with open(config_path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+
+            return True
+
+        except Exception as e:
+            print(f"保存环境变量失败: {e}")
+            return False
+
+    def clear_env_vars(self) -> bool:
+        """清除持久化的环境变量"""
+        config_path = self.get_shell_config_path()
+
+        if not config_path.exists():
+            return True
+
+        try:
+            # 读取现有内容
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # 移除所有AISwitch环境变量块
+            lines = content.split('\n')
+            new_lines = []
+            in_env_block = False
+
+            for line in lines:
+                # 检查是否是任何AISwitch环境变量块的开始
+                if line.strip().startswith("# >>> AISwitch environment variables") and line.strip().endswith(">>>"):
+                    in_env_block = True
+                    continue
+                elif line.strip().startswith("# <<< AISwitch environment variables") and line.strip().endswith("<<<"):
+                    in_env_block = False
+                    continue
+
+                if not in_env_block:
+                    new_lines.append(line)
+
+            new_content = '\n'.join(new_lines)
+
+            # 写回文件
+            with open(config_path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+
+            return True
+
+        except Exception as e:
+            print(f"清除环境变量失败: {e}")
+            return False
+
     def get_install_command(self) -> str:
         """获取手动安装的命令"""
         return f'eval $(aiswitch use <preset> --export)'

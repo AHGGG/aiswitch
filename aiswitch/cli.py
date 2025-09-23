@@ -215,15 +215,22 @@ def current(verbose: bool):
 
 @cli.command()
 def clear():
-    """清除当前环境变量设置"""
+    """清除当前环境变量设置和持久化配置"""
     try:
         preset_manager = PresetManager()
         cleared_vars = preset_manager.clear_current()
 
+        # 同时清除持久化的环境变量
+        from .shell_integration import ShellIntegration
+        integration = ShellIntegration()
+        integration.clear_env_vars()
+
         if cleared_vars:
-            click.echo(f"✓ Cleared environment variables: {', '.join(cleared_vars)}")
+            click.echo(f"✓ Cleared current session variables: {', '.join(cleared_vars)}")
         else:
-            click.echo("No environment variables to clear")
+            click.echo("No current session variables to clear")
+
+        click.echo("✓ Cleared persistent environment variables from shell config")
 
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
@@ -231,59 +238,29 @@ def clear():
 
 
 @cli.command()
-@click.option('--preset', help='指定要保存的预设名称(默认使用当前预设)')
-@click.option('--override', multiple=True, help='覆盖变量 格式: KEY=VALUE')
-def save(preset: Optional[str], override: List[str]):
-    """保存当前配置到项目目录"""
+def save():
+    """将当前预设的环境变量持久化到shell配置文件"""
     try:
         preset_manager = PresetManager()
+        current_preset = preset_manager.get_current_preset()
 
-        overrides = {}
-        for override_str in override:
-            if '=' not in override_str:
-                click.echo(f"Error: Invalid override format '{override_str}'. Use KEY=VALUE", err=True)
-                sys.exit(1)
-            key, value = override_str.split('=', 1)
-            overrides[key.strip()] = value.strip()
+        if not current_preset:
+            click.echo("Error: No current preset. Use 'aiswitch use <preset>' first.", err=True)
+            sys.exit(1)
 
-        project_config = preset_manager.save_project_config(
-            preset_name=preset,
-            overrides=overrides if overrides else None
-        )
+        from .shell_integration import ShellIntegration
+        integration = ShellIntegration()
 
-        click.echo(f"✓ Project configuration saved to .aiswitch.yaml")
-        click.echo(f"  Preset: {project_config.preset}")
-        if project_config.overrides:
-            click.echo(f"  Overrides: {len(project_config.overrides)} variables")
+        success = integration.save_env_vars(current_preset.variables, current_preset.name)
 
-    except ValueError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        sys.exit(1)
+        if success:
+            click.echo(f"✓ Environment variables from preset '{current_preset.name}' saved to shell config")
+            click.echo(f"  Variables saved: {', '.join(current_preset.variables.keys())}")
+            click.echo("  These will be automatically loaded in new terminal sessions")
+        else:
+            click.echo("❌ Failed to save environment variables", err=True)
+            sys.exit(1)
 
-
-@cli.command()
-def load():
-    """从项目配置文件加载配置"""
-    try:
-        preset_manager = PresetManager()
-        preset, applied_vars = preset_manager.load_project_config()
-
-        click.echo(f"✓ Loaded project configuration")
-        click.echo(f"  Preset: {preset.name}")
-
-        for var, value in applied_vars.items():
-            if 'KEY' in var:
-                display_value = f"{value[:8]}..." if len(value) > 8 else "***"
-            else:
-                display_value = value
-            click.echo(f"  {var}: {display_value}")
-
-    except ValueError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         sys.exit(1)
