@@ -58,17 +58,27 @@ function aiswitch
 end'''
         else:
             # bash/zsh
-            return '''# AISwitch shell integration
+            return '''# AISwitch shell integration - define before interactive check
+# This ensures the function works in both interactive and non-interactive shells
+
+# Unset any existing function/alias first
+unset -f aiswitch 2>/dev/null || true
+unalias aiswitch 2>/dev/null || true
+
 aiswitch() {
     local cmd="$1"
     shift
 
     if [ "$cmd" = "use" ]; then
         eval $(command aiswitch use "$@" --export)
+        echo "✓ Environment variables applied to current shell"
     else
         command aiswitch "$cmd" "$@"
     fi
-}'''
+}
+
+# Export the function to make it available in subshells
+export -f aiswitch'''
 
     def is_installed(self) -> bool:
         """检查是否已经安装"""
@@ -101,6 +111,12 @@ aiswitch() {
                 backup_path = config_path.with_suffix(config_path.suffix + '.aiswitch.backup')
                 shutil.copy2(config_path, backup_path)
 
+            # 读取现有内容
+            existing_content = ""
+            if config_path.exists():
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    existing_content = f.read()
+
             # 准备要添加的内容
             integration_code = self.get_integration_code()
             content_to_add = f'''
@@ -109,15 +125,26 @@ aiswitch() {
 {self.marker_end}
 '''
 
-            # 读取现有内容
-            existing_content = ""
-            if config_path.exists():
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    existing_content = f.read()
+            # 对于bash/zsh，在交互式检查之前插入函数定义
+            if 'case $- in' in existing_content:
+                # 找到交互式检查的位置
+                lines = existing_content.split('\n')
+                insert_pos = 0
+                for i, line in enumerate(lines):
+                    if 'case $- in' in line:
+                        insert_pos = i
+                        break
+
+                # 在交互式检查之前插入
+                lines.insert(insert_pos, content_to_add.strip())
+                new_content = '\n'.join(lines)
+            else:
+                # 如果没有找到交互式检查，就追加到末尾
+                new_content = existing_content + content_to_add
 
             # 写入新内容
             with open(config_path, 'w', encoding='utf-8') as f:
-                f.write(existing_content + content_to_add)
+                f.write(new_content)
 
             return True
 
@@ -146,18 +173,26 @@ aiswitch() {
             if end_idx == -1:
                 return False  # 找到开始标记但没有结束标记，可能文件损坏
 
-            # 移除整个标记块（包括前后的换行符）
+            # 移除整个标记块（包括结束标记）
             end_idx += len(self.marker_end)
 
-            # 查找前面的换行符
-            if start_idx > 0 and content[start_idx - 1] == '\n':
-                start_idx -= 1
+            # 使用行分割的方式来处理，确保不破坏文件结构
+            lines = content.split('\n')
+            new_lines = []
+            in_marker_block = False
 
-            # 查找后面的换行符
-            if end_idx < len(content) and content[end_idx] == '\n':
-                end_idx += 1
+            for line in lines:
+                if self.marker_start in line:
+                    in_marker_block = True
+                    continue
+                elif self.marker_end in line:
+                    in_marker_block = False
+                    continue
 
-            new_content = content[:start_idx] + content[end_idx:]
+                if not in_marker_block:
+                    new_lines.append(line)
+
+            new_content = '\n'.join(new_lines)
 
             # 写回文件
             with open(config_path, 'w', encoding='utf-8') as f:

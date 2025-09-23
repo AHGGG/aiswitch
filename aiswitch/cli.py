@@ -116,9 +116,10 @@ def use(name: str, export: bool):
         preset, applied_vars = preset_manager.use_preset(name)
 
         if export:
-            # 输出export语句供eval使用
+            # 输出export语句供eval使用，不输出其他信息
             for var, value in applied_vars.items():
                 click.echo(f'export {var}="{value}"')
+            return
         else:
             click.echo(f"✓ Switched to preset '{name}'")
 
