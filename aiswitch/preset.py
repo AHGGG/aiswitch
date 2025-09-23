@@ -76,7 +76,7 @@ class PresetManager:
 
         return self.config_manager.delete_preset(name)
 
-    def use_preset(self, name: str, apply_to_env: bool = True) -> Tuple[PresetConfig, Dict[str, str]]:
+    def use_preset(self, name: str, apply_to_env: bool = True) -> Tuple[PresetConfig, Dict[str, str], List[str]]:
         preset = self.config_manager.get_preset(name)
         if not preset:
             similar = self.config_manager.get_similar_preset_names(name)
@@ -86,8 +86,11 @@ class PresetManager:
                 raise ValueError(f"Preset '{name}' not found. Use 'aiswitch list' to see available presets.")
 
         applied_vars = {}
+        cleared_vars = []
         if apply_to_env:
-            applied_vars = self.env_manager.apply_preset(preset)
+            # 获取当前预设以便正确清除变量
+            current_preset = self.get_current_preset()
+            applied_vars, cleared_vars = self.env_manager.apply_preset(preset, current_preset=current_preset)
 
         self.config_manager.save_current_config(preset)
 
@@ -95,7 +98,7 @@ class PresetManager:
         global_config.current_preset = name
         self.config_manager.save_global_config(global_config)
 
-        return preset, applied_vars
+        return preset, applied_vars, cleared_vars
 
     def list_presets(self) -> List[Tuple[str, PresetConfig]]:
         preset_names = self.config_manager.list_presets()
@@ -147,7 +150,7 @@ class PresetManager:
         return project_config
 
     def load_project_config(self, project_dir: Optional[Path] = None,
-                           apply_to_env: bool = True) -> Tuple[PresetConfig, Dict[str, str]]:
+                           apply_to_env: bool = True) -> Tuple[PresetConfig, Dict[str, str], List[str]]:
         project_config = self.config_manager.get_project_config(project_dir)
         if not project_config:
             raise ValueError("No project configuration found (.aiswitch.yaml)")
@@ -175,8 +178,11 @@ class PresetManager:
         )
 
         applied_vars = {}
+        cleared_vars = []
         if apply_to_env:
-            applied_vars = self.env_manager.apply_preset(merged_preset)
+            # 获取当前预设以便正确清除变量
+            current_preset = self.get_current_preset()
+            applied_vars, cleared_vars = self.env_manager.apply_preset(merged_preset, current_preset=current_preset)
 
         self.config_manager.save_current_config(merged_preset)
 
@@ -184,7 +190,7 @@ class PresetManager:
         global_config.current_preset = project_config.preset
         self.config_manager.save_global_config(global_config)
 
-        return merged_preset, applied_vars
+        return merged_preset, applied_vars, cleared_vars
 
     def get_status(self) -> Dict[str, any]:
         current_preset = self.get_current_preset()

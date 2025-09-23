@@ -113,10 +113,13 @@ def use(name: str, export: bool):
     """切换到指定预设"""
     try:
         preset_manager = PresetManager()
-        preset, applied_vars = preset_manager.use_preset(name)
+        preset, applied_vars, cleared_vars = preset_manager.use_preset(name)
 
         if export:
-            # 输出export语句供eval使用，不输出其他信息
+            # 先输出unset语句清除旧变量
+            for var in cleared_vars:
+                click.echo(f'unset {var}')
+            # 再输出export语句设置新变量
             for var, value in applied_vars.items():
                 click.echo(f'export {var}="{value}"')
             return

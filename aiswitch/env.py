@@ -12,12 +12,44 @@ class EnvManager:
         self.default_variables = ["API_KEY", "API_BASE_URL", "API_MODEL"]
         self.system = platform.system()
 
-    def apply_preset(self, preset: PresetConfig) -> Dict[str, str]:
+    def apply_preset(self, preset: PresetConfig, clear_previous: bool = True, current_preset: Optional[PresetConfig] = None) -> tuple[Dict[str, str], List[str]]:
+        """应用预设配置，可选择是否清除之前的环境变量
+
+        返回：(应用的变量字典, 清除的变量列表)
+        """
         applied_vars = {}
+        cleared_vars = []
+
+        # 如果需要清除之前的变量
+        if clear_previous:
+            # 如果有当前预设，清除当前预设的所有变量
+            if current_preset:
+                for var in current_preset.variables.keys():
+                    # 清除当前预设的所有变量（不管是否在os.environ中）
+                    if var in os.environ:
+                        del os.environ[var]
+                    cleared_vars.append(var)  # 总是添加到cleared_vars中，用于--export
+            else:
+                # 如果没有当前预设，清除所有可能的AISwitch环境变量（除了新预设要设置的）
+                all_possible_vars = [
+                    "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL",
+                    "ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL",
+                    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+                    "API_KEY", "API_BASE_URL", "API_MODEL", "API_TIMEOUT_MS"
+                ]
+
+                for var in all_possible_vars:
+                    # 只清除不在新预设中的变量
+                    if var not in preset.variables and var in os.environ:
+                        del os.environ[var]
+                        cleared_vars.append(var)
+
+        # 应用新预设的环境变量
         for key, value in preset.variables.items():
             os.environ[key] = value
             applied_vars[key] = value
-        return applied_vars
+
+        return applied_vars, cleared_vars
 
     def clear_variables(self, variables: Optional[List[str]] = None) -> List[str]:
         if variables is None:

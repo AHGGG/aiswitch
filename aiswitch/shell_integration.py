@@ -70,8 +70,15 @@ aiswitch() {
     shift
 
     if [ "$cmd" = "use" ]; then
-        eval $(command aiswitch use "$@" --export)
-        echo "✓ Environment variables applied to current shell"
+        # Capture both export and unset commands, execute them all
+        local switch_commands=$(command aiswitch use "$@" --export)
+        if [ $? -eq 0 ]; then
+            eval "$switch_commands"
+            echo "✓ Environment variables applied to current shell"
+        else
+            echo "✗ Failed to switch preset"
+            return 1
+        fi
     else
         command aiswitch "$cmd" "$@"
     fi
@@ -204,6 +211,42 @@ export -f aiswitch'''
             print(f"卸载失败: {e}")
             return False
 
+    def get_existing_env_vars(self) -> dict:
+        """获取当前.bashrc中已持久化的环境变量"""
+        config_path = self.get_shell_config_path()
+
+        if not config_path.exists():
+            return {}
+
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            lines = content.split('\n')
+            existing_vars = {}
+            in_env_block = False
+
+            for line in lines:
+                # 检查是否是任何AISwitch环境变量块的开始
+                if line.strip().startswith("# >>> AISwitch environment variables") and line.strip().endswith(">>>"):
+                    in_env_block = True
+                    continue
+                elif line.strip().startswith("# <<< AISwitch environment variables") and line.strip().endswith("<<<"):
+                    in_env_block = False
+                    continue
+
+                if in_env_block and line.strip().startswith('export '):
+                    # 解析 export VAR="value" 格式
+                    export_line = line.strip()[7:]  # 移除 "export "
+                    if '=' in export_line:
+                        var_name = export_line.split('=')[0]
+                        existing_vars[var_name] = True
+
+            return existing_vars
+
+        except Exception:
+            return {}
+
     def save_env_vars(self, env_vars: dict, preset_name: str) -> bool:
         """持久化环境变量到shell配置文件"""
         config_path = self.get_shell_config_path()
@@ -211,6 +254,9 @@ export -f aiswitch'''
         env_marker_end = f"# <<< AISwitch environment variables ({preset_name}) <<<"
 
         try:
+            # 获取之前存在的环境变量
+            existing_vars = self.get_existing_env_vars()
+
             # 确保配置文件存在
             config_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -237,8 +283,21 @@ export -f aiswitch'''
                 if not in_env_block:
                     new_lines.append(line)
 
+            # 准备unset语句（用于清除之前的环境变量）
+            unset_statements = []
+            for var in existing_vars.keys():
+                if var not in env_vars:  # 如果新预设中没有这个变量，就unset它
+                    unset_statements.append(f'unset {var}')
+
             # 准备新的环境变量配置
             env_exports = []
+
+            # 先添加unset语句
+            if unset_statements:
+                env_exports.extend(unset_statements)
+                env_exports.append('')  # 空行分隔
+
+            # 再添加新的export语句
             for var, value in env_vars.items():
                 # 转义特殊字符
                 escaped_value = value.replace('"', '\\"').replace('$', '\\$').replace('`', '\\`')
