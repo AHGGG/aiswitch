@@ -50,8 +50,24 @@ function aiswitch
     set cmd $argv[1]
     set -e argv[1]
 
-    if test "$cmd" = "use"
-        eval (command aiswitch use $argv --export | string replace "export " "set -gx " | string replace "=" " ")
+    if test "$cmd" = "use" -o "$cmd" = "apply"
+        # Check if this is one-time execution mode for apply command (has -- separator)
+        set has_separator false
+        for arg in $argv
+            if test "$arg" = "--"
+                set has_separator true
+                break
+            end
+        end
+
+        if test "$cmd" = "apply" -a "$has_separator" = "true"
+            # One-time execution mode: pass through directly
+            command aiswitch $cmd $argv
+        else
+            # Interactive mode: convert export statements to Fish format
+            eval (command aiswitch $cmd $argv --export | string replace "export " "set -gx " | string replace "=" " ")
+            echo "✓ Environment variables applied to current shell"
+        end
     else
         command aiswitch $cmd $argv
     end
@@ -69,15 +85,30 @@ aiswitch() {
     local cmd="$1"
     shift
 
-    if [ "$cmd" = "use" ]; then
-        # Capture both export and unset commands, execute them all
-        local switch_commands=$(command aiswitch use "$@" --export)
-        if [ $? -eq 0 ]; then
-            eval "$switch_commands"
-            echo "✓ Environment variables applied to current shell"
+    if [ "$cmd" = "use" ] || [ "$cmd" = "apply" ]; then
+        # Check if this is one-time execution mode (has -- separator)
+        # For apply command, if there's a -- separator, it's one-time mode
+        local has_separator=false
+        for arg in "$@"; do
+            if [ "$arg" = "--" ]; then
+                has_separator=true
+                break
+            fi
+        done
+
+        if [ "$cmd" = "apply" ] && [ "$has_separator" = "true" ]; then
+            # One-time execution mode: pass through directly
+            command aiswitch "$cmd" "$@"
         else
-            echo "✗ Failed to switch preset"
-            return 1
+            # Interactive mode: use --export and eval the result
+            local switch_commands=$(command aiswitch "$cmd" "$@" --export)
+            if [ $? -eq 0 ]; then
+                eval "$switch_commands"
+                echo "✓ Environment variables applied to current shell"
+            else
+                echo "✗ Failed to switch preset"
+                return 1
+            fi
         fi
     else
         command aiswitch "$cmd" "$@"
@@ -364,4 +395,4 @@ export -f aiswitch'''
 
     def get_install_command(self) -> str:
         """获取手动安装的命令"""
-        return f'eval $(aiswitch use <preset> --export)'
+        return f'eval $(aiswitch apply <preset> --export)'

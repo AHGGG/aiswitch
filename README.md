@@ -30,19 +30,20 @@ If you prefer [uv](https://github.com/astral-sh/uv), run `uv sync` in the projec
 ## Quick Start
 
 ```bash
-# 1. 创建一个预设 (示例: OpenAI 公共云)
+# 1) 创建一个预设 (示例: OpenAI 公共云)
 aiswitch add openai \
   API_KEY sk-your-key \
   API_BASE_URL https://api.openai.com/v1 \
   API_MODEL gpt-4o
 
-# 2. 切换到该预设
-aiswitch use openai
+# 2) 切换到该预设（当前终端直接生效）
+# 首次将自动引导安装 shell 集成，并提示你 source rc 或重启终端
+aiswitch apply openai
 
-# 3. 将环境变量注入当前 shell
-eval $(aiswitch use openai --export)
+# 3) 可选：将当前预设持久化到 shell 配置（新开终端自动载入）
+aiswitch save
 
-# 4. 查看所有预设
+# 4) 查看所有预设
 aiswitch list
 ```
 
@@ -50,23 +51,26 @@ aiswitch list
 
 | Action | Command |
 | --- | --- |
-| Create or update environment presets | `aiswitch add <name> KEY value ...` |
-| Switch presets and print masked variables | `aiswitch use <name>` |
-| Apply variables directly to current shell | `eval $(aiswitch use <name> --export)` |
-| Inspect available presets | `aiswitch list` (append `--verbose` for details) |
-| Show the active preset | `aiswitch current` (append `--verbose` for env values) |
-| Remove a preset | `aiswitch remove <name>` (add `--force` to delete the active one) |
-| Clear in-memory variables and shell config | `aiswitch clear` |
+| Create a preset | `aiswitch add <name> KEY value ...` |
+| Apply preset to current terminal | `aiswitch apply <name>` |
 | Persist current preset into shell profile | `aiswitch save` |
+| Clear current session and persistent vars | `aiswitch clear` |
+| Inspect available presets | `aiswitch list` (add `--verbose`) |
+| Show the active preset | `aiswitch current` (add `--verbose`) |
+| Remove a preset | `aiswitch remove <name>` (add `--force`) |
+| Run one command with a preset (no pollution) | `aiswitch exec <name> -- <cmd>` |
+| Open a subshell with a preset (temporary) | `aiswitch shell <name>` |
 | Show runtime/config paths | `aiswitch status`, `aiswitch info` |
 
 ## Shell Integration
 
-`aiswitch use <name> --export` works in any shell via `eval`, but you can install a helper function that runs automatically:
+On first `aiswitch apply <name>`, AISwitch detects whether shell integration is installed. If not, it offers to install a tiny function into your shell profile so `apply` directly updates the current terminal without extra steps. After installation, reload your shell (`source ~/.bashrc`, `source ~/.zshrc`, or restart the terminal) once.
+
+Useful maintenance commands:
 
 ```bash
-# 安装集成 (会在 ~/.bashrc 或 ~/.zshrc 中注入函数)
-aiswitch install
+# 手动安装/重新安装集成（可选）
+aiswitch install [--force]
 
 # 将当前预设的变量持久化到 shell 配置文件中
 aiswitch save
@@ -77,8 +81,6 @@ aiswitch clear
 # 卸载 shell 集成
 aiswitch uninstall
 ```
-
-After `aiswitch install`, subsequent `aiswitch use <name>` calls update your current shell without `eval`. Reload your shell (`source ~/.bashrc`, `source ~/.zshrc`, or restart the terminal) to activate the integration.
 
 ## Configuration Files
 
