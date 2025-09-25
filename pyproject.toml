@@ -41,3 +41,8 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["aiswitch"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]

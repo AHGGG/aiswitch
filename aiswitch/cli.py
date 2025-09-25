@@ -246,28 +246,39 @@ def shell_cmd(name: str):
         sys.exit(1)
 
 
-@cli.command(name="exec", hidden=True)
+@cli.command(
+    name="exec",
+    hidden=True,
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+)
 @click.argument('name')
-@click.argument('cmd', nargs=-1, required=True)
+@click.argument('cmd', nargs=-1, required=True, type=click.UNPROCESSED)
 def exec_cmd(name: str, cmd: tuple):
     """[兼容别名] 在指定预设下执行命令
 
     推荐使用: aiswitch apply <preset> -- <command> [args...]
     """
     try:
-        click.echo("⚠️  注意: 'exec' 命令将在未来版本中移除，推荐使用: aiswitch apply <preset> -- <command>")
+        click.echo(
+            "⚠️  注意: 'exec' 命令将在未来版本中移除，推荐使用: aiswitch apply <preset> -- <command>"
+        )
 
         preset_manager = PresetManager()
-        # 仅为子进程准备环境，不修改当前指针与磁盘状态
         preset = preset_manager.config_manager.get_preset(name)
         if not preset:
-            raise ValueError(f"Preset '{name}' not found. Use 'aiswitch list' to see available presets.")
+            raise ValueError(
+                f"Preset '{name}' not found. Use 'aiswitch list' to see available presets."
+            )
 
         env = os.environ.copy()
         env.update(preset.variables)
 
-        result = subprocess.call(list(cmd), env=env)
-        sys.exit(result)
+        if not cmd:
+            raise ValueError("No command provided to execute")
+
+        command_str = " ".join(cmd)
+        result = subprocess.run(command_str, env=env, shell=True, check=False)
+        sys.exit(result.returncode)
     except FileNotFoundError:
         click.echo("Error: Command not found. Ensure the command exists in PATH.", err=True)
         sys.exit(127)

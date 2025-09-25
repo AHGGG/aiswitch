@@ -4,17 +4,10 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from click.testing import make_input_stream as original_make_input_stream
 
 from aiswitch.cli import cli
-
-
-@pytest.fixture()
-def temp_config_dir(tmp_path, monkeypatch):
-    # Use XDG_CONFIG_HOME for isolation
-    cfg_home = tmp_path / "xdg"
-    (cfg_home).mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(cfg_home))
-    return cfg_home
+import aiswitch.cli as cli_module
 
 
 @pytest.mark.skipif(sys.platform.startswith("win"), reason="Unix-like shells expected")
@@ -56,9 +49,26 @@ def test_exec_does_not_update_current(temp_config_dir, monkeypatch):
     assert r.invoke(cli, ["apply", "a"]).exit_code == 0
 
     # Run a one-off command under preset 'b'
-    # Use a very portable command
-    code = r.invoke(cli, ["exec", "b", "bash", "-lc", "echo ok"]).exit_code
-    assert code == 0
+    called = {}
+
+    class DummyCompletedProcess:
+        def __init__(self, returncode: int = 0):
+            self.returncode = returncode
+
+    def fake_run(command, env=None, shell=None, check=None):  # type: ignore[override]
+        called["command"] = command
+        called["env"] = env
+        called["shell"] = shell
+        return DummyCompletedProcess(0)
+
+    monkeypatch.setattr(cli_module.subprocess, "run", fake_run)
+
+    result = r.invoke(cli, ["exec", "b", "echo", "ok"])
+    assert result.exit_code == 0, result.output
+    assert called
+    assert called["shell"] is True
+    assert called["env"]["API_KEY"] == "2"
+    assert called["command"] == "echo ok"
 
     # Current should still be 'a'
     status_out = r.invoke(cli, ["status"]).output
@@ -70,26 +80,35 @@ def test_apply_first_run_offers_install(temp_config_dir, monkeypatch):
     # Monkeypatch ShellIntegration to pretend not installed and to succeed on install
     from aiswitch import shell_integration as si
 
+    install_called = {"value": False}
+
     class DummyIntegration(si.ShellIntegration):
         def is_installed(self) -> bool:  # type: ignore[override]
             return False
 
         def install(self) -> bool:  # type: ignore[override]
+            install_called["value"] = True
             return True
 
         def get_shell_config_path(self):  # type: ignore[override]
             return Path(temp_config_dir) / ".bashrc"
 
     monkeypatch.setattr(si, "ShellIntegration", DummyIntegration)
-
     r = CliRunner()
     # Add preset
     assert r.invoke(cli, ["add", "x", "API_KEY", "k", "API_BASE_URL", "https://z", "API_MODEL", "m"]).exit_code == 0
 
     # Simulate TTY and answer yes
     # click's CliRunner doesn't set isatty; we monkeypatch sys.stdin.isatty
-    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    def fake_make_input_stream(*args, **kwargs):
+        stream = original_make_input_stream(*args, **kwargs)
+        setattr(stream, "isatty", lambda: True)
+        return stream
+
+    monkeypatch.setattr("click.testing.make_input_stream", fake_make_input_stream)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True, raising=False)
+    monkeypatch.setattr("aiswitch.cli.click.confirm", lambda *a, **k: True)
     res = r.invoke(cli, ["apply", "x"], input="y\n")
     assert res.exit_code == 0
     assert "Shell 集成已安装" in res.output
-
+    assert install_called["value"] is True

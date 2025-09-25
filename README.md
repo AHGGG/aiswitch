@@ -122,6 +122,12 @@ aiswitch status
 
 # 使用 uv 运行 (如果你使用 uv 管理环境)
 uv run aiswitch list
+
+# 运行测试套件（推荐使用 uv 保持隔离环境）
+uv run python -m pytest
+
+# 如果你使用虚拟环境并已安装 pytest，也可以直接运行
+python -m pytest
 ```
 
 When you change CLI behaviour, update `pyproject.toml` version metadata as needed and run your preferred testing or linting workflow before publishing.
