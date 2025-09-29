@@ -64,9 +64,23 @@ function aiswitch
             # One-time execution mode: pass through directly
             command aiswitch $cmd $argv
         else
-            # Interactive mode: convert export statements to Fish format
-            eval (command aiswitch $cmd $argv --export | string replace "export " "set -gx " | string replace "=" " ")
-            echo "✓ Environment variables applied to current shell"
+            # Check if this is a help request or other special flag
+            set is_help false
+            for arg in $argv
+                if test "$arg" = "--help" -o "$arg" = "-h"
+                    set is_help true
+                    break
+                end
+            end
+
+            if test "$is_help" = "true"
+                # For help requests, pass through directly without --export
+                command aiswitch $cmd $argv
+            else
+                # Interactive mode: convert export statements to Fish format
+                eval (command aiswitch $cmd $argv --export | string replace "export " "set -gx " | string replace "=" " ")
+                echo "✓ Environment variables applied to current shell"
+            end
         end
     else
         command aiswitch $cmd $argv
@@ -100,14 +114,28 @@ aiswitch() {
             # One-time execution mode: pass through directly
             command aiswitch "$cmd" "$@"
         else
-            # Interactive mode: use --export and eval the result
-            local switch_commands=$(command aiswitch "$cmd" "$@" --export)
-            if [ $? -eq 0 ]; then
-                eval "$switch_commands"
-                echo "✓ Environment variables applied to current shell"
+            # Check if this is a help request or other special flag
+            local is_help=false
+            for arg in "$@"; do
+                if [ "$arg" = "--help" ] || [ "$arg" = "-h" ]; then
+                    is_help=true
+                    break
+                fi
+            done
+
+            if [ "$is_help" = "true" ]; then
+                # For help requests, pass through directly without --export
+                command aiswitch "$cmd" "$@"
             else
-                echo "✗ Failed to switch preset"
-                return 1
+                # Interactive mode: use --export and eval the result
+                local switch_commands=$(command aiswitch "$cmd" "$@" --export)
+                if [ $? -eq 0 ]; then
+                    eval "$switch_commands"
+                    echo "✓ Environment variables applied to current shell"
+                else
+                    echo "✗ Failed to switch preset"
+                    return 1
+                fi
             fi
         fi
     else
