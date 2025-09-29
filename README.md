@@ -21,7 +21,7 @@ pip install aiswitch
 git clone https://github.com/your-org/aiswitch.git
 cd aiswitch
 python -m venv .venv
-source .venv/bin/activate  # Windows 使用 .venv\Scripts\activate
+source .venv/bin/activate  # Windows use .venv\Scripts\activate
 uv tool install --editable .
 ```
 
@@ -30,20 +30,20 @@ If you prefer [uv](https://github.com/astral-sh/uv), run `uv sync` in the projec
 ## Quick Start
 
 ```bash
-# 1) 创建一个预设 (示例: OpenAI 公共云)
+# 1) Create a preset (example: OpenAI public cloud)
 aiswitch add openai \
   API_KEY sk-your-key \
   API_BASE_URL https://api.openai.com/v1 \
   API_MODEL gpt-4o
 
-# 2) 切换到该预设（当前终端直接生效）
-# 首次将自动引导安装 shell 集成，并提示你 source rc 或重启终端
+# 2) Switch to this preset (takes effect in current terminal)
+# First time will automatically guide shell integration installation
 aiswitch apply openai
 
-# 3) 可选：将当前预设持久化到 shell 配置（新开终端自动载入）
+# 3) Optional: Persist current preset to shell config (auto-load in new terminals)
 aiswitch save
 
-# 4) 查看所有预设
+# 4) View all presets
 aiswitch list
 ```
 
@@ -71,16 +71,16 @@ On first `aiswitch apply <name>`, AISwitch detects whether shell integration is 
 Useful maintenance commands:
 
 ```bash
-# 手动安装/重新安装集成（可选）
+# Manually install/reinstall integration (optional)
 aiswitch install [--force]
 
-# 将当前预设的变量持久化到 shell 配置文件中
+# Persist current preset variables to shell config file
 aiswitch save
 
-# 清除已持久化的变量和当前会话变量
+# Clear persisted variables and current session variables
 aiswitch clear
 
-# 卸载 shell 集成
+# Uninstall shell integration
 aiswitch uninstall
 ```
 
@@ -135,26 +135,33 @@ These steps assume you are working inside a clone of this repository:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows 使用 .venv\Scripts\activate
+source .venv/bin/activate  # Windows use .venv\Scripts\activate
 pip install -e .
 ```
 
 Useful commands while developing:
 
 ```bash
-# 查看 CLI 帮助
+# View CLI help
 python -m aiswitch --help
 
-# 在本地运行命令 (自动指向当前源码)
+# Run commands locally (automatically points to current source code)
 aiswitch status
 
-# 使用 uv 运行 (如果你使用 uv 管理环境)
+# Run with uv (if you use uv to manage environment)
 uv run aiswitch list
 
-# 运行测试套件（推荐使用 uv 保持隔离环境）
+# Run test suite (recommended using uv for isolated environment)
 uv run python -m pytest
 
-# 如果你使用虚拟环境并已安装 pytest，也可以直接运行
+# Run tests and view coverage
+uv run python -m pytest --cov=aiswitch --cov-report=term-missing
+
+# Generate HTML coverage report (visual view)
+uv run python -m pytest --cov=aiswitch --cov-report=html
+# Then open htmlcov/index.html to view detailed report
+
+# If you use virtual environment with pytest installed, you can also run directly
 python -m pytest
 ```
 
