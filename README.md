@@ -58,8 +58,10 @@ aiswitch list
 | Inspect available presets | `aiswitch list` (add `--verbose`) |
 | Show the active preset | `aiswitch current` (add `--verbose`) |
 | Remove a preset | `aiswitch remove <name>` (add `--force`) |
-| Run one command with a preset (no pollution) | `aiswitch exec <name> -- <cmd>` |
+| Run one command with a preset (no pollution) | `aiswitch apply <name> -- <cmd>` |
 | Open a subshell with a preset (temporary) | `aiswitch shell <name>` |
+| Export preset configurations | `aiswitch export <name>` or `aiswitch export --all` |
+| Import preset configurations | `aiswitch import <file>` |
 | Show runtime/config paths | `aiswitch status`, `aiswitch info` |
 
 ## Shell Integration
@@ -100,6 +102,32 @@ overrides:
 ```
 
 Project configs let you pin a preset and override individual variables when you run AISwitch from that directory. `aiswitch status` reports whether a `.aiswitch.yaml` file is detected.
+
+## Export and Import
+
+You can export and import preset configurations for backup, sharing, or migration:
+
+```bash
+# Export a single preset
+aiswitch export openai
+
+# Export a single preset to file
+aiswitch export openai -o openai-preset.json
+
+# Export all presets to file
+aiswitch export --all -o all-presets.json
+
+# Include secrets in export (by default, sensitive values are redacted)
+aiswitch export --all --include-secrets -o config-with-secrets.json
+
+# Import presets from file
+aiswitch import config.json
+
+# Force overwrite existing presets during import
+aiswitch import config.json --force
+```
+
+**Security Note**: By default, export redacts sensitive values (containing "KEY", "SECRET", or "TOKEN") with `***REDACTED***`. Use `--include-secrets` to export actual values when needed.
 
 ## Development Setup
 
