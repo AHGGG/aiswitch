@@ -248,48 +248,6 @@ def shell_cmd(name: str):
         sys.exit(1)
 
 
-@cli.command(
-    name="exec",
-    hidden=True,
-    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
-)
-@click.argument('name')
-@click.argument('cmd', nargs=-1, required=True, type=click.UNPROCESSED)
-def exec_cmd(name: str, cmd: tuple):
-    """[兼容别名] 在指定预设下执行命令
-
-    推荐使用: aiswitch apply <preset> -- <command> [args...]
-    """
-    try:
-        click.echo(
-            "⚠️  注意: 'exec' 命令将在未来版本中移除，推荐使用: aiswitch apply <preset> -- <command>"
-        )
-
-        preset_manager = PresetManager()
-        preset = preset_manager.config_manager.get_preset(name)
-        if not preset:
-            raise ValueError(
-                f"Preset '{name}' not found. Use 'aiswitch list' to see available presets."
-            )
-
-        env = os.environ.copy()
-        env.update(preset.variables)
-
-        if not cmd:
-            raise ValueError("No command provided to execute")
-
-        command_str = " ".join(cmd)
-        result = subprocess.run(command_str, env=env, shell=True, check=False)
-        sys.exit(result.returncode)
-    except FileNotFoundError:
-        click.echo("Error: Command not found. Ensure the command exists in PATH.", err=True)
-        sys.exit(127)
-    except ValueError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
-        sys.exit(1)
 
 @cli.command()
 @click.option('--verbose', is_flag=True, help='显示详细信息')
