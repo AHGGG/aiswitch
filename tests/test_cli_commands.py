@@ -722,3 +722,354 @@ def test_export_import_roundtrip(temp_config_dir):
 
     finally:
         os.unlink(export_path)
+
+
+def test_apply_basic_functionality(temp_config_dir):
+    """Test basic apply command functionality"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="apply_test")
+
+    res = runner.invoke(cli, ["apply", "apply_test"])
+    assert res.exit_code == 0
+    assert "✓ Switched to preset 'apply_test'" in res.output
+    assert "API_KEY: sk-apply_test" in res.output or "API_KEY: sk-apply..." in res.output  # Masked key
+    assert "API_BASE_URL: https://api.example.com" in res.output
+    assert "API_MODEL: gpt-4o" in res.output
+
+
+def test_apply_export_mode(temp_config_dir):
+    """Test apply command with --export flag"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="export_test")
+
+    res = runner.invoke(cli, ["apply", "export_test", "--export"])
+    assert res.exit_code == 0
+
+    # Should output export statements
+    output_lines = res.output.strip().split('\n')
+    export_lines = [line for line in output_lines if line.startswith('export ')]
+    unset_lines = [line for line in output_lines if line.startswith('unset ')]
+
+    # Should have export statements for new variables
+    assert any('export API_KEY=' in line for line in export_lines)
+    assert any('export API_BASE_URL=' in line for line in export_lines)
+    assert any('export API_MODEL=' in line for line in export_lines)
+
+
+def test_apply_nonexistent_preset(temp_config_dir):
+    """Test apply command with nonexistent preset"""
+    runner = CliRunner()
+
+    res = runner.invoke(cli, ["apply", "nonexistent"])
+    assert res.exit_code != 0
+    assert "not found" in res.output
+
+
+def test_apply_with_shell_integration_check(temp_config_dir, monkeypatch):
+    """Test apply command checks for shell integration"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="integration_test")
+
+    # Mock shell integration to simulate non-interactive mode (no stdin.isatty)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+
+    res = runner.invoke(cli, ["apply", "integration_test"])
+    assert res.exit_code == 0
+    assert "✓ Switched to preset 'integration_test'" in res.output
+
+
+def test_exec_basic_functionality(temp_config_dir, monkeypatch):
+    """Test basic exec command functionality"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="exec_test")
+
+    # Mock subprocess.run to avoid actually executing commands
+    mock_result = type('MockResult', (), {'returncode': 0})()
+    run_calls = []
+
+    def mock_run(command, env=None, shell=True, check=False):
+        run_calls.append({'command': command, 'env': env, 'shell': shell, 'check': check})
+        return mock_result
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    res = runner.invoke(cli, ["exec", "exec_test", "echo", "hello"])
+    assert res.exit_code == 0
+    assert "将在未来版本中移除" in res.output  # Deprecation warning
+
+    # Verify subprocess.run was called with correct parameters
+    assert len(run_calls) == 1
+    call = run_calls[0]
+    assert call['command'] == "echo hello"
+    assert call['shell'] is True
+    assert call['check'] is False
+    assert 'API_KEY' in call['env']
+    assert call['env']['API_KEY'] == 'sk-exec_test'
+    assert call['env']['API_BASE_URL'] == BASE_URL
+
+
+def test_exec_nonexistent_preset(temp_config_dir):
+    """Test exec command with nonexistent preset"""
+    runner = CliRunner()
+
+    res = runner.invoke(cli, ["exec", "nonexistent", "echo", "test"])
+    assert res.exit_code != 0
+    assert "not found" in res.output
+
+
+def test_exec_no_command(temp_config_dir):
+    """Test exec command without providing a command"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="no_cmd_test")
+
+    res = runner.invoke(cli, ["exec", "no_cmd_test"])
+    assert res.exit_code != 0
+    assert "Missing argument 'CMD...'" in res.output
+
+
+def test_exec_command_not_found(temp_config_dir, monkeypatch):
+    """Test exec command when the command is not found"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="not_found_test")
+
+    def mock_run(command, env=None, shell=True, check=False):
+        raise FileNotFoundError("Command not found")
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    res = runner.invoke(cli, ["exec", "not_found_test", "nonexistent_command"])
+    assert res.exit_code == 127
+    assert "Command not found" in res.output
+
+
+def test_exec_with_complex_command(temp_config_dir, monkeypatch):
+    """Test exec command with complex command including arguments and pipes"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="complex_test")
+
+    mock_result = type('MockResult', (), {'returncode': 42})()
+    run_calls = []
+
+    def mock_run(command, env=None, shell=True, check=False):
+        run_calls.append({'command': command, 'env': env})
+        return mock_result
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    res = runner.invoke(cli, ["exec", "complex_test", "ls", "-la", "|", "grep", "test"])
+    assert res.exit_code == 42  # Should propagate the exit code
+
+    # Verify the complex command was passed correctly
+    assert len(run_calls) == 1
+    assert run_calls[0]['command'] == "ls -la | grep test"
+
+
+def test_apply_current_preset_switching(temp_config_dir):
+    """Test apply command switches between different presets correctly"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="preset1", model="gpt-4")
+    _add_default_preset(runner, name="preset2", model="claude-3")
+
+    # Apply first preset
+    res1 = runner.invoke(cli, ["apply", "preset1"])
+    assert res1.exit_code == 0
+    assert "✓ Switched to preset 'preset1'" in res1.output
+
+    # Verify current preset
+    current_res = runner.invoke(cli, ["current"])
+    assert "preset1" in current_res.output
+
+    # Apply second preset
+    res2 = runner.invoke(cli, ["apply", "preset2"])
+    assert res2.exit_code == 0
+    assert "✓ Switched to preset 'preset2'" in res2.output
+
+    # Verify current preset changed
+    current_res2 = runner.invoke(cli, ["current"])
+    assert "preset2" in current_res2.output
+
+
+def test_apply_with_quiet_flag(temp_config_dir):
+    """Test apply command with --quiet flag"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="quiet_test")
+
+    # Note: The quiet flag is documented but doesn't seem to change behavior in normal mode
+    # It's intended for one-time execution mode
+    res = runner.invoke(cli, ["apply", "quiet_test", "--quiet"])
+    assert res.exit_code == 0
+    # In current implementation, quiet doesn't suppress output in normal apply mode
+
+
+def test_add_empty_env_pairs(temp_config_dir):
+    """Test add command with no environment variable pairs"""
+    runner = CliRunner()
+
+    res = runner.invoke(cli, ["add", "empty"])
+    assert res.exit_code != 0
+    assert "Missing argument 'ENV_PAIRS...'" in res.output
+
+
+def test_add_duplicate_preset_name(temp_config_dir):
+    """Test add command with duplicate preset name"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="duplicate")
+
+    # Try to add same name again
+    res = runner.invoke(cli, ["add", "duplicate", "API_KEY", "sk-test"])
+    assert res.exit_code != 0
+    assert "already exists" in res.output
+
+
+def test_current_when_no_preset_active(temp_config_dir):
+    """Test current command when no preset is currently active"""
+    runner = CliRunner()
+
+    res = runner.invoke(cli, ["current"])
+    assert res.exit_code == 0
+    assert "No current preset" in res.output
+
+
+def test_current_nonexistent_preset_in_config(temp_config_dir, monkeypatch):
+    """Test current command when config references a nonexistent preset"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="existing")
+
+    # Apply a preset then remove it to create inconsistent state
+    runner.invoke(cli, ["apply", "existing"])
+    runner.invoke(cli, ["remove", "existing", "--force"])
+
+    res = runner.invoke(cli, ["current"])
+    assert res.exit_code == 0
+    # Should handle gracefully when referenced preset doesn't exist
+
+
+def test_clear_when_no_current_preset(temp_config_dir):
+    """Test clear command when no preset is currently active"""
+    runner = CliRunner()
+
+    res = runner.invoke(cli, ["clear"])
+    assert res.exit_code == 0
+    # Should succeed even with no active preset
+
+
+def test_status_with_project_config(temp_config_dir):
+    """Test status command when project config exists"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="project_test")
+
+    # Apply preset and save project config
+    runner.invoke(cli, ["apply", "project_test"])
+
+    # Create a simple project config
+    project_config_content = """
+preset: project_test
+overrides:
+  API_MODEL: "project-specific-model"
+"""
+
+    with open(".aiswitch.yaml", "w") as f:
+        f.write(project_config_content)
+
+    try:
+        res = runner.invoke(cli, ["status", "--verbose"])
+        assert res.exit_code == 0
+        # Should show project config information
+        assert "project_test" in res.output
+
+    finally:
+        # Clean up
+        if os.path.exists(".aiswitch.yaml"):
+            os.unlink(".aiswitch.yaml")
+
+
+def test_list_empty_presets(temp_config_dir):
+    """Test list command when no presets exist"""
+    runner = CliRunner()
+
+    res = runner.invoke(cli, ["list"])
+    assert res.exit_code == 0
+    assert "No presets found" in res.output
+    assert "Use 'aiswitch add' to create one" in res.output
+
+
+def test_save_when_no_current_preset(temp_config_dir):
+    """Test save command when no preset is currently active"""
+    runner = CliRunner()
+
+    res = runner.invoke(cli, ["save"])
+    assert res.exit_code != 0
+    # Should fail when there's no current preset to save
+
+
+def test_remove_with_force_current_preset(temp_config_dir):
+    """Test remove command with --force on currently active preset"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="force_remove_test")
+
+    # Apply the preset
+    runner.invoke(cli, ["apply", "force_remove_test"])
+
+    # Remove with force
+    res = runner.invoke(cli, ["remove", "force_remove_test", "--force"])
+    assert res.exit_code == 0
+    assert "removed" in res.output
+
+    # Verify it's removed from list
+    list_res = runner.invoke(cli, ["list"])
+    assert "force_remove_test" not in list_res.output
+
+
+def test_remove_without_force_current_preset(temp_config_dir):
+    """Test remove command without --force on currently active preset"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="current_remove_test")
+
+    # Apply the preset
+    runner.invoke(cli, ["apply", "current_remove_test"])
+
+    # Try to remove without force
+    res = runner.invoke(cli, ["remove", "current_remove_test"])
+    assert res.exit_code != 0
+    assert "Cannot remove current preset" in res.output and "Use --force" in res.output
+
+
+def test_add_with_special_characters_in_values(temp_config_dir):
+    """Test add command with special characters in environment variable values"""
+    runner = CliRunner()
+
+    special_value = "sk-test123!@#$%^&*()_+-={}[]|\\:;\"'<>?,./"
+    res = runner.invoke(cli, ["add", "special_chars", "API_KEY", special_value, "API_URL", "https://api.test.com/v1"])
+    assert res.exit_code == 0
+    assert "Preset 'special_chars' added successfully" in res.output
+
+
+def test_cli_version_option(temp_config_dir):
+    """Test CLI version option"""
+    runner = CliRunner()
+
+    res = runner.invoke(cli, ["--version"])
+    assert res.exit_code == 0
+    assert "0.1.0" in res.output
+
+
+def test_cli_help_option(temp_config_dir):
+    """Test CLI help option"""
+    runner = CliRunner()
+
+    res = runner.invoke(cli, ["--help"])
+    assert res.exit_code == 0
+    assert "AISwitch" in res.output
+    assert "Usage:" in res.output
+
+
+def test_subcommand_help_options(temp_config_dir):
+    """Test help options for various subcommands"""
+    runner = CliRunner()
+
+    commands_to_test = ["add", "remove", "apply", "list", "current", "clear", "save", "status", "info", "export", "import"]
+
+    for cmd in commands_to_test:
+        res = runner.invoke(cli, [cmd, "--help"])
+        assert res.exit_code == 0, f"Help for {cmd} command failed"
+        assert "Usage:" in res.output, f"Help for {cmd} command doesn't contain usage"
