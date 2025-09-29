@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
+import json
 
 from .config import ConfigManager, PresetConfig, ProjectConfig, GlobalConfig
 from .env import EnvManager
@@ -217,20 +218,64 @@ class PresetManager:
 
         return status
 
-    def export_preset(self, name: str) -> Dict:
+    def export_preset(self, name: str, redact_secrets: bool = True) -> Dict:
+        """导出单个预设"""
         preset = self.config_manager.get_preset(name)
         if not preset:
             raise ValueError(f"Preset '{name}' not found")
 
         export_data = preset.model_dump()
 
-        for key in export_data["variables"]:
-            if "KEY" in key.upper():
-                export_data["variables"][key] = "***REDACTED***"
+        if redact_secrets:
+            for key in export_data["variables"]:
+                if "KEY" in key.upper() or "SECRET" in key.upper() or "TOKEN" in key.upper():
+                    export_data["variables"][key] = "***REDACTED***"
 
         return export_data
 
+    def export_all_presets(self, output_file: Optional[Path] = None, redact_secrets: bool = True) -> Dict:
+        """导出所有预设"""
+        preset_names = self.config_manager.list_presets()
+        if not preset_names:
+            raise ValueError("No presets found to export")
+
+        export_data = {
+            "version": "1.0.0",
+            "export_time": datetime.now().isoformat(),
+            "global_config": self.config_manager.get_global_config().model_dump(),
+            "presets": []
+        }
+
+        for name in preset_names:
+            preset = self.config_manager.get_preset(name)
+            if preset:
+                preset_data = preset.model_dump()
+                if redact_secrets:
+                    for key in preset_data["variables"]:
+                        if "KEY" in key.upper() or "SECRET" in key.upper() or "TOKEN" in key.upper():
+                            preset_data["variables"][key] = "***REDACTED***"
+                export_data["presets"].append(preset_data)
+
+        if output_file:
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False)
+
+        return export_data
+
+    def export_preset_to_file(self, name: str, output_file: Path, redact_secrets: bool = True):
+        """导出单个预设到文件"""
+        preset_data = self.export_preset(name, redact_secrets)
+        export_data = {
+            "version": "1.0.0",
+            "export_time": datetime.now().isoformat(),
+            "preset": preset_data
+        }
+
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(export_data, f, indent=2, ensure_ascii=False)
+
     def import_preset(self, preset_data: Dict, allow_overwrite: bool = False) -> PresetConfig:
+        """导入单个预设"""
         try:
             preset = PresetConfig(**preset_data)
         except Exception as e:
@@ -238,6 +283,11 @@ class PresetManager:
 
         if self.config_manager.preset_exists(preset.name) and not allow_overwrite:
             raise ValueError(f"Preset '{preset.name}' already exists. Use --force to overwrite.")
+
+        # 检查是否包含被编辑的密钥
+        for key, value in preset.variables.items():
+            if value == "***REDACTED***":
+                raise ValueError(f"Cannot import preset with redacted value for '{key}'. Please update the value before importing.")
 
         try:
             validated_vars = self.env_manager.validate_env_variables(preset.variables)
@@ -247,6 +297,37 @@ class PresetManager:
 
         self.config_manager.save_preset(preset)
         return preset
+
+    def import_from_file(self, input_file: Path, allow_overwrite: bool = False) -> List[PresetConfig]:
+        """从文件导入预设"""
+        if not input_file.exists():
+            raise ValueError(f"Import file '{input_file}' not found")
+
+        try:
+            with open(input_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON format: {e}")
+
+        imported_presets = []
+
+        # 检查数据格式
+        if "preset" in data:
+            # 单个预设格式
+            preset = self.import_preset(data["preset"], allow_overwrite)
+            imported_presets.append(preset)
+        elif "presets" in data:
+            # 批量预设格式
+            for preset_data in data["presets"]:
+                try:
+                    preset = self.import_preset(preset_data, allow_overwrite)
+                    imported_presets.append(preset)
+                except ValueError as e:
+                    print(f"Warning: Failed to import preset '{preset_data.get('name', 'unknown')}': {e}")
+        else:
+            raise ValueError("Invalid import file format. Expected 'preset' or 'presets' key.")
+
+        return imported_presets
 
     def update_preset(self, name: str, **kwargs) -> PresetConfig:
         preset = self.config_manager.get_preset(name)

@@ -1,4 +1,6 @@
 import os
+import json
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -305,3 +307,418 @@ def test_uninstall_success(temp_config_dir, monkeypatch):
     assert res.exit_code == 0
     assert calls["uninstall"] == 1
     assert "卸载成功" in res.output
+
+
+def test_export_single_preset_to_stdout(temp_config_dir):
+    """Test exporting a single preset to stdout"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="export_test")
+
+    res = runner.invoke(cli, ["export", "export_test"])
+    assert res.exit_code == 0
+
+    # Parse the output as JSON
+    output_data = json.loads(res.output)
+    assert output_data["version"] == "1.0.0"
+    assert output_data["preset"]["name"] == "export_test"
+    assert output_data["preset"]["variables"]["API_KEY"] == "***REDACTED***"  # Should be redacted by default
+    assert output_data["preset"]["variables"]["API_BASE_URL"] == BASE_URL
+    assert output_data["preset"]["variables"]["API_MODEL"] == "gpt-4o"
+
+
+def test_export_single_preset_with_secrets(temp_config_dir):
+    """Test exporting a single preset with secrets included"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="export_secrets")
+
+    res = runner.invoke(cli, ["export", "export_secrets", "--include-secrets"])
+    assert res.exit_code == 0
+
+    # The output includes a warning message, so we need to extract just the JSON part
+    lines = res.output.strip().split('\n')
+    json_lines = []
+    collecting_json = False
+    for line in lines:
+        if line.startswith('{'):
+            collecting_json = True
+        if collecting_json:
+            json_lines.append(line)
+        if line.startswith('}'):
+            break
+
+    json_output = '\n'.join(json_lines)
+    output_data = json.loads(json_output)
+    assert output_data["preset"]["variables"]["API_KEY"] == "sk-export_secrets"  # Should not be redacted
+
+
+def test_export_single_preset_to_file(temp_config_dir):
+    """Test exporting a single preset to a file"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="file_export")
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
+        tmp_path = tmp_file.name
+
+    try:
+        res = runner.invoke(cli, ["export", "file_export", "-o", tmp_path])
+        assert res.exit_code == 0
+        assert f"exported to '{tmp_path}'" in res.output
+
+        # Verify file contents
+        with open(tmp_path, 'r') as f:
+            data = json.load(f)
+        assert data["preset"]["name"] == "file_export"
+        assert data["preset"]["variables"]["API_KEY"] == "***REDACTED***"
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_export_all_presets_to_stdout(temp_config_dir):
+    """Test exporting all presets to stdout"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="preset1")
+    _add_default_preset(runner, name="preset2", model="claude-3")
+
+    res = runner.invoke(cli, ["export", "--all"])
+    assert res.exit_code == 0
+
+    output_data = json.loads(res.output)
+    assert output_data["version"] == "1.0.0"
+    assert len(output_data["presets"]) == 2
+
+    preset_names = [p["name"] for p in output_data["presets"]]
+    assert "preset1" in preset_names
+    assert "preset2" in preset_names
+
+    # Check that secrets are redacted by default
+    for preset in output_data["presets"]:
+        assert preset["variables"]["API_KEY"] == "***REDACTED***"
+
+
+def test_export_all_presets_with_secrets_to_file(temp_config_dir):
+    """Test exporting all presets with secrets to a file"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="secret1")
+    _add_default_preset(runner, name="secret2")
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
+        tmp_path = tmp_file.name
+
+    try:
+        res = runner.invoke(cli, ["export", "--all", "--include-secrets", "-o", tmp_path])
+        assert res.exit_code == 0
+        assert f"All presets exported to '{tmp_path}'" in res.output
+        assert "Exported 2 presets" in res.output
+
+        # Verify file contents
+        with open(tmp_path, 'r') as f:
+            data = json.load(f)
+        assert len(data["presets"]) == 2
+
+        # Check that secrets are included
+        for preset in data["presets"]:
+            assert "sk-" in preset["variables"]["API_KEY"]
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_export_nonexistent_preset(temp_config_dir):
+    """Test exporting a preset that doesn't exist"""
+    runner = CliRunner()
+
+    res = runner.invoke(cli, ["export", "nonexistent"])
+    assert res.exit_code != 0
+    assert "not found" in res.output
+
+
+def test_export_all_when_no_presets(temp_config_dir):
+    """Test exporting all presets when no presets exist"""
+    runner = CliRunner()
+
+    res = runner.invoke(cli, ["export", "--all"])
+    assert res.exit_code != 0
+    assert "No presets found" in res.output
+
+
+def test_import_single_preset_from_file(temp_config_dir):
+    """Test importing a single preset from a file"""
+    runner = CliRunner()
+
+    # Create test data
+    preset_data = {
+        "version": "1.0.0",
+        "export_time": "2024-01-01T00:00:00",
+        "preset": {
+            "name": "imported_preset",
+            "description": "Test imported preset",
+            "variables": {
+                "API_KEY": "sk-imported",
+                "API_BASE_URL": "https://api.imported.com/v1",
+                "API_MODEL": "gpt-3.5-turbo"
+            },
+            "tags": ["imported", "test"],
+            "created_at": "2024-01-01T00:00:00"
+        }
+    }
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
+        json.dump(preset_data, tmp_file)
+        tmp_path = tmp_file.name
+
+    try:
+        res = runner.invoke(cli, ["import", tmp_path])
+        assert res.exit_code == 0
+        assert "Successfully imported 1 preset" in res.output
+
+        # Verify the preset was imported
+        list_res = runner.invoke(cli, ["list"])
+        assert "imported_preset" in list_res.output
+
+        # Verify preset details
+        list_verbose_res = runner.invoke(cli, ["list", "--verbose"])
+        assert "Test imported preset" in list_verbose_res.output
+        assert "imported, test" in list_verbose_res.output
+
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_import_multiple_presets_from_file(temp_config_dir):
+    """Test importing multiple presets from a file"""
+    runner = CliRunner()
+
+    # Create test data with multiple presets
+    export_data = {
+        "version": "1.0.0",
+        "export_time": "2024-01-01T00:00:00",
+        "presets": [
+            {
+                "name": "multi1",
+                "description": "First preset",
+                "variables": {
+                    "API_KEY": "sk-multi1",
+                    "API_BASE_URL": "https://api.multi1.com/v1"
+                },
+                "tags": [],
+                "created_at": "2024-01-01T00:00:00"
+            },
+            {
+                "name": "multi2",
+                "description": "Second preset",
+                "variables": {
+                    "API_KEY": "sk-multi2",
+                    "API_BASE_URL": "https://api.multi2.com/v1"
+                },
+                "tags": ["multi"],
+                "created_at": "2024-01-01T00:00:00"
+            }
+        ]
+    }
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
+        json.dump(export_data, tmp_file)
+        tmp_path = tmp_file.name
+
+    try:
+        res = runner.invoke(cli, ["import", tmp_path])
+        assert res.exit_code == 0
+        assert "Successfully imported 2 presets" in res.output
+
+        # Verify both presets were imported
+        list_res = runner.invoke(cli, ["list"])
+        assert "multi1" in list_res.output
+        assert "multi2" in list_res.output
+
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_import_preset_with_existing_name_without_force(temp_config_dir):
+    """Test importing a preset with a name that already exists (without force)"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="existing")
+
+    preset_data = {
+        "version": "1.0.0",
+        "preset": {
+            "name": "existing",
+            "description": "Duplicate preset",
+            "variables": {
+                "API_KEY": "sk-duplicate",
+                "API_BASE_URL": "https://api.duplicate.com/v1"
+            },
+            "tags": [],
+            "created_at": "2024-01-01T00:00:00"
+        }
+    }
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
+        json.dump(preset_data, tmp_file)
+        tmp_path = tmp_file.name
+
+    try:
+        res = runner.invoke(cli, ["import", tmp_path])
+        assert res.exit_code != 0
+        assert "Conflicts detected" in res.output
+        assert "--force" in res.output
+
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_import_preset_with_existing_name_with_force(temp_config_dir):
+    """Test importing a preset with a name that already exists (with force)"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="existing")
+
+    preset_data = {
+        "version": "1.0.0",
+        "preset": {
+            "name": "existing",
+            "description": "Overwritten preset",
+            "variables": {
+                "API_KEY": "sk-overwritten",
+                "API_BASE_URL": "https://api.overwritten.com/v1"
+            },
+            "tags": ["overwritten"],
+            "created_at": "2024-01-01T00:00:00"
+        }
+    }
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
+        json.dump(preset_data, tmp_file)
+        tmp_path = tmp_file.name
+
+    try:
+        res = runner.invoke(cli, ["import", tmp_path, "--force"])
+        assert res.exit_code == 0
+        assert "Successfully imported 1 preset" in res.output
+
+        # Verify the preset was overwritten
+        list_verbose_res = runner.invoke(cli, ["list", "--verbose"])
+        assert "Overwritten preset" in list_verbose_res.output
+        assert "overwritten" in list_verbose_res.output
+
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_import_preset_with_redacted_secrets(temp_config_dir):
+    """Test importing a preset with redacted secrets fails"""
+    runner = CliRunner()
+
+    preset_data = {
+        "version": "1.0.0",
+        "preset": {
+            "name": "redacted",
+            "description": "Preset with redacted secrets",
+            "variables": {
+                "API_KEY": "***REDACTED***",
+                "API_BASE_URL": "https://api.test.com/v1"
+            },
+            "tags": [],
+            "created_at": "2024-01-01T00:00:00"
+        }
+    }
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
+        json.dump(preset_data, tmp_file)
+        tmp_path = tmp_file.name
+
+    try:
+        res = runner.invoke(cli, ["import", tmp_path])
+        assert res.exit_code != 0
+        assert "Cannot import: File contains redacted secret values" in res.output
+
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_import_invalid_json_file(temp_config_dir):
+    """Test importing a file with invalid JSON"""
+    runner = CliRunner()
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
+        tmp_file.write("invalid json {")
+        tmp_path = tmp_file.name
+
+    try:
+        res = runner.invoke(cli, ["import", tmp_path])
+        assert res.exit_code != 0
+        assert "Invalid JSON format" in res.output
+
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_import_nonexistent_file(temp_config_dir):
+    """Test importing a file that doesn't exist"""
+    runner = CliRunner()
+
+    res = runner.invoke(cli, ["import", "/nonexistent/file.json"])
+    assert res.exit_code != 0
+    assert "does not exist" in res.output
+
+
+def test_import_invalid_preset_format(temp_config_dir):
+    """Test importing a file with invalid preset format"""
+    runner = CliRunner()
+
+    invalid_data = {
+        "version": "1.0.0",
+        "invalid": "format"
+    }
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
+        json.dump(invalid_data, tmp_file)
+        tmp_path = tmp_file.name
+
+    try:
+        res = runner.invoke(cli, ["import", tmp_path])
+        assert res.exit_code != 0
+        assert "Invalid import file format" in res.output
+
+    finally:
+        os.unlink(tmp_path)
+
+
+def test_export_import_roundtrip(temp_config_dir):
+    """Test exporting and then importing presets (roundtrip test)"""
+    runner = CliRunner()
+
+    # Create some test presets
+    _add_default_preset(runner, name="roundtrip1", model="gpt-4")
+    _add_default_preset(runner, name="roundtrip2", model="claude-3")
+
+    # Export all presets with secrets
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_export:
+        export_path = tmp_export.name
+
+    try:
+        # Export
+        export_res = runner.invoke(cli, ["export", "--all", "--include-secrets", "-o", export_path])
+        assert export_res.exit_code == 0
+
+        # Clear all presets
+        runner.invoke(cli, ["remove", "roundtrip1", "--force"])
+        runner.invoke(cli, ["remove", "roundtrip2", "--force"])
+
+        # Verify presets are gone
+        list_res = runner.invoke(cli, ["list"])
+        assert "roundtrip1" not in list_res.output
+        assert "roundtrip2" not in list_res.output
+
+        # Import back
+        import_res = runner.invoke(cli, ["import", export_path])
+        assert import_res.exit_code == 0
+        assert "Successfully imported 2 presets" in import_res.output
+
+        # Verify presets are back
+        final_list_res = runner.invoke(cli, ["list", "--verbose"])
+        assert "roundtrip1" in final_list_res.output
+        assert "roundtrip2" in final_list_res.output
+        # Check that both presets exist with the right variable counts
+        assert "Variables: 3" in final_list_res.output
+
+    finally:
+        os.unlink(export_path)

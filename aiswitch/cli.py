@@ -5,6 +5,8 @@ from typing import Optional, List
 import yaml
 import os
 import subprocess
+import json
+from datetime import datetime
 
 from .preset import PresetManager
 from .config import PresetConfig
@@ -529,6 +531,176 @@ def uninstall():
             click.echo("❌ Shell集成卸载失败", err=True)
             sys.exit(1)
 
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument('preset_name', required=False)
+@click.option('--output', '-o', type=click.Path(), help='输出文件路径')
+@click.option('--all', 'export_all', is_flag=True, help='导出所有预设')
+@click.option('--include-secrets', is_flag=True, help='包含敏感信息（慎用）')
+def export(preset_name: Optional[str], output: Optional[str], export_all: bool, include_secrets: bool):
+    """导出预设配置
+
+    使用方式:
+      aiswitch export <preset_name>           # 导出单个预设到stdout
+      aiswitch export <preset_name> -o file   # 导出单个预设到文件
+      aiswitch export --all                   # 导出所有预设到stdout
+      aiswitch export --all -o file           # 导出所有预设到文件
+    """
+    try:
+        preset_manager = PresetManager()
+
+        if export_all:
+            # 导出所有预设
+            output_path = Path(output) if output else None
+            export_data = preset_manager.export_all_presets(
+                output_file=output_path,
+                redact_secrets=not include_secrets
+            )
+
+            if not output:
+                click.echo(json.dumps(export_data, indent=2, ensure_ascii=False))
+            else:
+                click.echo(f"✓ All presets exported to '{output}'")
+                click.echo(f"  Exported {len(export_data['presets'])} presets")
+
+        elif preset_name:
+            # 导出单个预设
+            if output:
+                output_path = Path(output)
+                preset_manager.export_preset_to_file(
+                    preset_name,
+                    output_path,
+                    redact_secrets=not include_secrets
+                )
+                click.echo(f"✓ Preset '{preset_name}' exported to '{output}'")
+            else:
+                preset_data = preset_manager.export_preset(
+                    preset_name,
+                    redact_secrets=not include_secrets
+                )
+                export_data = {
+                    "version": "1.0.0",
+                    "export_time": datetime.now().isoformat(),
+                    "preset": preset_data
+                }
+                click.echo(json.dumps(export_data, indent=2, ensure_ascii=False))
+        else:
+            click.echo("Error: Must specify either a preset name or --all flag", err=True)
+            sys.exit(1)
+
+        if include_secrets:
+            click.echo("⚠️  Warning: Export includes sensitive information. Handle with care.", err=True)
+
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command(name="import")
+@click.argument('input_file', type=click.Path(exists=True))
+@click.option('--force', is_flag=True, help='覆盖已存在的预设')
+@click.option('--dry-run', is_flag=True, help='预览导入内容，不实际导入')
+def import_cmd(input_file: str, force: bool, dry_run: bool):
+    """从文件导入预设配置
+
+    使用方式:
+      aiswitch import config.json           # 导入配置文件
+      aiswitch import config.json --force   # 强制覆盖已存在的预设
+      aiswitch import config.json --dry-run # 预览导入内容
+    """
+    try:
+        preset_manager = PresetManager()
+        input_path = Path(input_file)
+
+        if not input_path.exists():
+            click.echo(f"Error: File '{input_file}' not found", err=True)
+            sys.exit(1)
+
+        # 读取文件进行预览
+        try:
+            with open(input_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            click.echo(f"Error: Invalid JSON format: {e}", err=True)
+            sys.exit(1)
+
+        # 分析导入内容
+        presets_to_import = []
+        if "preset" in data:
+            presets_to_import = [data["preset"]]
+        elif "presets" in data:
+            presets_to_import = data["presets"]
+        else:
+            click.echo("Error: Invalid import file format. Expected 'preset' or 'presets' key.", err=True)
+            sys.exit(1)
+
+        # 显示预览信息
+        click.echo(f"Import preview from '{input_file}':")
+        click.echo(f"  File format version: {data.get('version', 'unknown')}")
+        if 'export_time' in data:
+            click.echo(f"  Export time: {data['export_time']}")
+        click.echo(f"  Presets to import: {len(presets_to_import)}")
+
+        conflicts = []
+        for preset_data in presets_to_import:
+            name = preset_data.get('name', 'unknown')
+            exists = preset_manager.config_manager.preset_exists(name)
+            status = "exists" if exists else "new"
+
+            # 检查是否有编辑的密钥
+            redacted_vars = []
+            for key, value in preset_data.get('variables', {}).items():
+                if value == "***REDACTED***":
+                    redacted_vars.append(key)
+
+            if exists:
+                conflicts.append(name)
+
+            click.echo(f"    - {name}: {status}")
+            if redacted_vars:
+                click.echo(f"      ⚠️  Contains redacted variables: {', '.join(redacted_vars)}")
+
+        if conflicts and not force:
+            click.echo(f"\n❌ Conflicts detected: {', '.join(conflicts)}")
+            click.echo("Use --force to overwrite existing presets")
+
+        if dry_run:
+            click.echo("\n📋 Dry run completed. Use without --dry-run to actually import.")
+            return
+
+        if conflicts and not force:
+            sys.exit(1)
+
+        # 检查编辑的变量
+        has_redacted = any(
+            value == "***REDACTED***"
+            for preset_data in presets_to_import
+            for value in preset_data.get('variables', {}).values()
+        )
+
+        if has_redacted:
+            click.echo("\n❌ Cannot import: File contains redacted secret values.")
+            click.echo("Please edit the file and replace '***REDACTED***' with actual values.")
+            sys.exit(1)
+
+        # 执行导入
+        click.echo(f"\n🔄 Importing presets...")
+        imported_presets = preset_manager.import_from_file(input_path, allow_overwrite=force)
+
+        click.echo(f"✓ Successfully imported {len(imported_presets)} presets:")
+        for preset in imported_presets:
+            click.echo(f"  - {preset.name}")
+
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
     except Exception as e:
         click.echo(f"Unexpected error: {e}", err=True)
         sys.exit(1)
