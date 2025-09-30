@@ -86,6 +86,9 @@ class TestShellIntegration:
         mock_shell_type.return_value = 'bash'
         mock_system.return_value = 'Darwin'
 
+        # Mock the system attribute on the instance to ensure it uses Darwin
+        self.integration.system = 'Darwin'
+
         with patch('pathlib.Path.exists', return_value=False):
             result = self.integration.get_shell_config_path()
             assert result == Path('/home/user/.bash_profile')
@@ -452,6 +455,7 @@ after content
         """Test clear env vars with permission error."""
         with patch.object(self.integration, 'get_shell_config_path') as mock_path:
             mock_path.return_value = Path('/root/.bashrc')
-            with patch('builtins.open', side_effect=PermissionError("Permission denied")):
-                result = self.integration.clear_env_vars()
-                assert result is False
+            with patch('pathlib.Path.exists', return_value=True):
+                with patch('builtins.open', side_effect=PermissionError("Permission denied")):
+                    result = self.integration.clear_env_vars()
+                    assert result is False

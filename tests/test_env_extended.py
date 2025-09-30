@@ -264,31 +264,39 @@ class TestEnvManagerExtended:
         assert "API_KEY" in error_msg
         assert "API_BASE_URL" in error_msg
 
-    @patch('aiswitch.env.platform.system')
-    def test_export_to_shell_windows(self, mock_system):
+    def test_export_to_shell_windows(self):
         """Test exporting to shell on Windows."""
-        mock_system.return_value = "Windows"
+        # Temporarily set the system to Windows
+        original_system = self.env_manager.system
+        self.env_manager.system = "Windows"
 
-        with patch.object(self.env_manager, '_export_to_windows_env', return_value=True) as mock_export:
-            variables = {"API_KEY": "test"}
-            result = self.env_manager.export_to_shell(variables)
+        try:
+            with patch.object(self.env_manager, '_export_to_windows_env', return_value=True) as mock_export:
+                variables = {"API_KEY": "test"}
+                result = self.env_manager.export_to_shell(variables)
 
-            assert result is True
-            mock_export.assert_called_once_with(variables)
+                assert result is True
+                mock_export.assert_called_once_with(variables)
+        finally:
+            self.env_manager.system = original_system
 
-    @patch('aiswitch.env.platform.system')
-    def test_export_to_shell_unix(self, mock_system):
+    def test_export_to_shell_unix(self):
         """Test exporting to shell on Unix."""
-        mock_system.return_value = "Linux"
+        # Temporarily set the system to Linux
+        original_system = self.env_manager.system
+        self.env_manager.system = "Linux"
 
-        with patch.object(self.env_manager, '_export_to_unix_shell', return_value=True) as mock_export:
-            variables = {"API_KEY": "test"}
-            shell_file = Path("/tmp/.bashrc")
+        try:
+            with patch.object(self.env_manager, '_export_to_unix_shell', return_value=True) as mock_export:
+                variables = {"API_KEY": "test"}
+                shell_file = Path("/tmp/.bashrc")
 
-            result = self.env_manager.export_to_shell(variables, shell_file)
+                result = self.env_manager.export_to_shell(variables, shell_file)
 
-            assert result is True
-            mock_export.assert_called_once_with(variables, shell_file)
+                assert result is True
+                mock_export.assert_called_once_with(variables, shell_file)
+        finally:
+            self.env_manager.system = original_system
 
     def test_export_to_unix_shell_success(self):
         """Test successful export to Unix shell."""
@@ -379,36 +387,34 @@ class TestEnvManagerExtended:
             assert result == Path("/home/user/.zshrc")
 
     @patch.dict(os.environ, {'SHELL': '/bin/bash'})
-    @patch('aiswitch.env.Path.home')
-    def test_detect_shell_config_bash(self, mock_home):
+    def test_detect_shell_config_bash(self):
         """Test shell config detection for bash."""
-        mock_home.return_value = Path("/home/user")
+        # Create a temporary directory structure
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home_path = Path(temp_dir)
+            bashrc_path = home_path / ".bashrc"
 
-        with patch('pathlib.Path.exists') as mock_exists:
-            # Only .bashrc exists
-            def exists_side_effect(path):
-                return str(path).endswith('.bashrc')
+            # Create the .bashrc file
+            bashrc_path.touch()
 
-            mock_exists.side_effect = exists_side_effect
-
-            result = self.env_manager._detect_shell_config()
-            assert result == Path("/home/user/.bashrc")
+            with patch('aiswitch.env.Path.home', return_value=home_path):
+                result = self.env_manager._detect_shell_config()
+                assert result == bashrc_path
 
     @patch.dict(os.environ, {'SHELL': '/bin/unknown'})
-    @patch('aiswitch.env.Path.home')
-    def test_detect_shell_config_fallback(self, mock_home):
+    def test_detect_shell_config_fallback(self):
         """Test shell config detection fallback."""
-        mock_home.return_value = Path("/home/user")
+        # Create a temporary directory structure
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home_path = Path(temp_dir)
+            profile_path = home_path / ".profile"
 
-        with patch('pathlib.Path.exists') as mock_exists:
-            # .profile exists
-            def exists_side_effect(path):
-                return str(path).endswith('.profile')
+            # Create the .profile file (but not the shell-specific ones)
+            profile_path.touch()
 
-            mock_exists.side_effect = exists_side_effect
-
-            result = self.env_manager._detect_shell_config()
-            assert result == Path("/home/user/.profile")
+            with patch('aiswitch.env.Path.home', return_value=home_path):
+                result = self.env_manager._detect_shell_config()
+                assert result == profile_path
 
     @patch('aiswitch.env.Path.home')
     def test_detect_shell_config_none_exist(self, mock_home):
@@ -441,15 +447,19 @@ class TestEnvManagerExtended:
                 assert info["current_API_KEY"] == "***"  # Should be masked
                 assert info["current_API_BASE_URL"] == "https://api.example.com"
 
-    @patch('aiswitch.env.platform.system')
-    def test_get_env_info_windows(self, mock_system):
+    def test_get_env_info_windows(self):
         """Test getting environment info on Windows."""
-        mock_system.return_value = "Windows"
+        # Temporarily set the system to Windows
+        original_system = self.env_manager.system
+        self.env_manager.system = "Windows"
 
-        info = self.env_manager.get_env_info()
+        try:
+            info = self.env_manager.get_env_info()
 
-        assert info["system"] == "Windows"
-        assert info["config_detected"] == "Windows Registry"
+            assert info["system"] == "Windows"
+            assert info["config_detected"] == "Windows Registry"
+        finally:
+            self.env_manager.system = original_system
 
     def test_get_env_info_with_empty_vars(self):
         """Test getting environment info with empty variables."""
