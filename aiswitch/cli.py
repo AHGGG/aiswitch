@@ -151,7 +151,8 @@ def _apply_impl(name: str, export: bool):
 @click.option('--task', help='要执行的任务内容（未在agent-tasks中指定的agent使用此默认任务）')
 @click.option('--timeout', type=float, default=30.0, help='命令超时时间（秒）')
 @click.option('--stop-on-error', is_flag=True, help='遇到错误时停止执行（仅串行模式）')
-def apply(name: str, export: bool, quiet: bool, agents: Optional[str], agent_presets: Optional[str], agent_tasks: Optional[str], parallel: bool, task: Optional[str], timeout: float, stop_on_error: bool):
+@click.option('--interactive', is_flag=True, help='启动交互式模式，支持与单个agent多轮对话')
+def apply(name: str, export: bool, quiet: bool, agents: Optional[str], agent_presets: Optional[str], agent_tasks: Optional[str], parallel: bool, task: Optional[str], timeout: float, stop_on_error: bool, interactive: bool):
     """应用指定预设（核心命令）
 
     \b
@@ -176,6 +177,12 @@ def apply(name: str, export: bool, quiet: bool, agents: Optional[str], agent_pre
       注意: 使用单引号包围整个参数以保护内部的双引号和逗号
 
     \b
+    交互式AI对话模式: aiswitch apply <preset> --interactive [--agents <agent>]
+      启动与指定AI agent的交互式对话会话，支持多轮对话。
+      默认使用claude agent，或通过--agents指定单个agent。
+      输入'exit'、'quit'或按Ctrl+C退出会话。
+
+    \b
     一次性运行模式: aiswitch apply <preset> -- <cmd> [args...]
       仅对子进程注入环境变量，不修改当前终端，不依赖 shell 集成。
       适合脚本、CI 环境和 Windows 系统。
@@ -185,6 +192,22 @@ def apply(name: str, export: bool, quiet: bool, agents: Optional[str], agent_pre
     --export 选项仅供 shell 集成内部使用。
     """
     try:
+        # 交互式模式：apply <preset> --interactive [--agents <agent>]
+        if interactive:
+            # 交互式模式只支持单个agent
+            if agents:
+                agent_list = agents.split(',')
+                if len(agent_list) > 1:
+                    click.echo("❌ Error: Interactive mode only supports single agent")
+                    sys.exit(1)
+                agent_name = agent_list[0].strip()
+            else:
+                # 如果没有指定agents，默认使用claude
+                agent_name = 'claude'
+
+            _execute_ai_agent_interactive(agent_name, name)
+            return
+
         # 多代理模式：apply <preset> --agents <agents> --task <task>
         if agents:
             # 确保有默认任务或agent-tasks映射
@@ -804,6 +827,107 @@ async def _execute_ai_agent(agent_name: str, task: str, timeout: float, preset_n
             timestamp=datetime.now(),
             success=False
         )
+
+def _execute_ai_agent_interactive(agent_name: str, preset_name: str):
+    """交互式执行AI CLI agent，支持多轮对话"""
+    import subprocess
+    import os
+    import sys
+
+    # AI agent命令模板配置
+    agent_commands = {
+        'claude': ['claude'],
+        'codex': ['codex'],
+        'gpt': ['gpt'],
+        'gemini': ['gemini'],
+        'openai': ['openai'],
+        'anthropic': ['anthropic'],
+        'chatgpt': ['chatgpt']
+    }
+
+    # 获取命令模板
+    command_template = agent_commands.get(agent_name)
+    if not command_template:
+        # 如果没有预定义，尝试通用格式
+        command_template = [agent_name]
+
+    # 先应用预设获取环境变量
+    from .preset import PresetManager
+    preset_manager = PresetManager()
+    try:
+        preset, _, _ = preset_manager.use_preset(preset_name, apply_to_env=False)
+        env = {**os.environ, **preset.variables}
+    except Exception as e:
+        click.echo(f"Error applying preset '{preset_name}': {e}", err=True)
+        return
+
+    click.echo(f"🚀 Starting interactive session with {agent_name} using preset '{preset_name}'")
+    click.echo("💡 Type 'exit', 'quit' or press Ctrl+C to quit")
+    click.echo("=" * 50)
+
+    # 先测试命令是否可用
+    try:
+        # 测试命令是否存在且可执行
+        test_result = subprocess.run(
+            command_template + ['--help'],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if test_result.returncode != 0:
+            click.echo(f"❌ Error: {agent_name} command failed help test. Return code: {test_result.returncode}")
+            if test_result.stderr:
+                click.echo(f"Error output: {test_result.stderr}")
+            return
+    except subprocess.TimeoutExpired:
+        click.echo(f"⚠️  {agent_name} command help took too long, but continuing anyway...")
+    except FileNotFoundError:
+        click.echo(f"❌ Error: Command '{command_template[0]}' not found. Ensure it's installed and in PATH.", err=True)
+        return
+    except Exception as e:
+        click.echo(f"⚠️  Could not test {agent_name} command, but continuing anyway: {e}")
+
+    # 使用PTY实现真正的交互式会话
+    try:
+        import pty
+        import os
+        import sys
+
+        click.echo(f"✅ Starting interactive session with {agent_name}...")
+        click.echo("💡 This will maintain conversation context")
+        click.echo("=" * 50)
+
+        # 使用pty.spawn让claude有一个真正的TTY环境
+        # 先设置环境变量
+        old_env = dict(os.environ)
+        os.environ.update(env)
+
+        try:
+            # 直接spawn claude，这样它就有完整的TTY环境
+            pty.spawn(command_template)
+        finally:
+            # 恢复原始环境变量
+            os.environ.clear()
+            os.environ.update(old_env)
+
+        click.echo("\n👋 Interactive session ended")
+
+    except ImportError:
+        # PTY不可用时的fallback（比如Windows）
+        click.echo("⚠️  PTY not available, using fallback mode")
+        try:
+            result = subprocess.run(command_template, env=env)
+            click.echo(f"👋 Session ended with return code: {result.returncode}")
+        except Exception as e:
+            click.echo(f"❌ Error in fallback mode: {e}")
+
+    except KeyboardInterrupt:
+        click.echo("\n👋 Interactive session ended")
+    except FileNotFoundError:
+        click.echo(f"❌ Error: Command '{command_template[0]}' not found. Ensure it's installed and in PATH.", err=True)
+    except Exception as e:
+        click.echo(f"❌ Error starting interactive session: {e}", err=True)
 
 def _parse_agent_presets(agent_presets_str: Optional[str]) -> Dict[str, str]:
     """解析agent-presets映射字符串"""
