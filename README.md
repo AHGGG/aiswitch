@@ -45,6 +45,9 @@ aiswitch save
 
 # 4) View all presets
 aiswitch list
+
+# 5) Optional: Use AI agents with your preset
+aiswitch apply openai --agents claude --task "Hello! What can you help me with?"
 ```
 
 ## Everyday Commands
@@ -60,6 +63,7 @@ aiswitch list
 | Remove a preset | `aiswitch remove <name>` (add `--force`) |
 | Run one command with a preset (no pollution) | `aiswitch apply <name> -- <cmd>` |
 | Open a subshell with a preset (temporary) | `aiswitch shell <name>` |
+| **Run AI agents with preset** | `aiswitch apply <name> --agents <agent> --task "<task>"` |
 | Export preset configurations | `aiswitch export <name>` or `aiswitch export --all` |
 | Import preset configurations | `aiswitch import <file>` |
 | Show runtime/config paths | `aiswitch status`, `aiswitch info` |
@@ -129,6 +133,89 @@ aiswitch import config.json --force
 
 **Security Note**: By default, export redacts sensitive values (containing "KEY", "SECRET", or "TOKEN") with `***REDACTED***`. Use `--include-secrets` to export actual values when needed.
 
+## CLI Agents
+
+AISwitch includes a CLI agent system that allows you to run AI tools using your presets with unified command execution and output handling.
+
+### Basic Usage
+
+```bash
+# Run a single agent with a task
+aiswitch apply <preset> --agents claude --task "What is 2+2?"
+
+# Run multiple agents in parallel
+aiswitch apply <preset> --agents claude,python --task "Hello!" --parallel
+
+# Run multiple agents sequentially (default)
+aiswitch apply <preset> --agents claude,gpt --task "Explain AI"
+```
+
+### Available Options
+
+- `--agents`: Comma-separated list of agent names
+- `--task`: The task/prompt to send to the agents
+- `--parallel`: Execute agents in parallel (default: sequential)
+- `--timeout`: Command timeout in seconds (default: 30)
+- `--stop-on-error`: Stop execution if an agent fails
+
+### Built-in Agents
+
+**Claude Agent**: Direct integration with Claude CLI
+```bash
+aiswitch apply my_anthropic_preset --agents claude --task "Hello Claude!"
+```
+
+**Python Agent**: Interactive Python interpreter
+```bash
+aiswitch apply any_preset --agents python --task "print('Hello World')"
+```
+
+**Cat Agent**: Simple echo/testing agent
+```bash
+aiswitch apply any_preset --agents cat --task "test input"
+```
+
+### Agent Management
+
+```bash
+# List active agents and sessions
+aiswitch agents list
+
+# Check agent status
+aiswitch agents status <agent_id>
+
+# Terminate an agent
+aiswitch agents terminate <agent_id>
+```
+
+### Environment Variable Inheritance
+
+CLI agents automatically inherit environment variables from your applied preset, making it easy to use different AI services:
+
+```bash
+# Create a preset with Anthropic credentials
+aiswitch add anthropic_preset \
+  ANTHROPIC_AUTH_TOKEN "your-token" \
+  ANTHROPIC_BASE_URL "https://api.anthropic.com" \
+  ANTHROPIC_MODEL "claude-3-sonnet"
+
+# Use Claude agent with these credentials
+aiswitch apply anthropic_preset --agents claude --task "Hello!"
+```
+
+### Advanced Examples
+
+```bash
+# Parallel execution with multiple AI agents
+aiswitch apply ai_preset --agents claude,gpt,python --task "Write a haiku about coding" --parallel
+
+# Sequential execution with timeout
+aiswitch apply preset --agents claude,python --task "Complex analysis task" --timeout 60
+
+# Stop on first error
+aiswitch apply preset --agents claude,fallback_agent --task "Important task" --stop-on-error
+```
+
 ## Development Setup
 
 These steps assume you are working inside a clone of this repository:
@@ -160,6 +247,9 @@ uv run python -m pytest --cov=aiswitch --cov-report=term-missing
 # Generate HTML coverage report (visual view)
 uv run python -m pytest --cov=aiswitch --cov-report=html
 # Then open htmlcov/index.html to view detailed report
+
+# Test CLI agents functionality
+uv run aiswitch apply test_preset --agents claude --task "Hello World"
 
 # If you use virtual environment with pytest installed, you can also run directly
 python -m pytest

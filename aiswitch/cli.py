@@ -6,6 +6,7 @@ import yaml
 import os
 import subprocess
 import json
+import asyncio
 from datetime import datetime
 
 from .preset import PresetManager
@@ -143,13 +144,22 @@ def _apply_impl(name: str, export: bool):
 @click.argument('name')
 @click.option('--export', is_flag=True, help='输出环境变量export语句，用于shell集成自动应用')
 @click.option('--quiet', '-q', is_flag=True, help='静默模式，不显示执行信息（仅用于一次性运行模式）')
-def apply(name: str, export: bool, quiet: bool):
+@click.option('--agents', help='指定代理列表，逗号分隔，例如: claude,gpt')
+@click.option('--parallel', is_flag=True, help='并行执行（默认串行）')
+@click.option('--task', help='要执行的任务内容')
+@click.option('--timeout', type=float, default=30.0, help='命令超时时间（秒）')
+@click.option('--stop-on-error', is_flag=True, help='遇到错误时停止执行（仅串行模式）')
+def apply(name: str, export: bool, quiet: bool, agents: Optional[str], parallel: bool, task: Optional[str], timeout: float, stop_on_error: bool):
     """应用指定预设（核心命令）
 
     \b
     交互模式: aiswitch apply <preset>
       切换到指定预设，在安装了 shell 集成后直接在当前终端生效。
       首次使用时若未安装集成，会提示一键安装。
+
+    \b
+    多代理模式: aiswitch apply <preset> --agents claude,gpt --task "任务内容"
+      使用多个AI代理执行指定任务，支持并行或串行执行。
 
     \b
     一次性运行模式: aiswitch apply <preset> -- <cmd> [args...]
@@ -161,6 +171,11 @@ def apply(name: str, export: bool, quiet: bool):
     --export 选项仅供 shell 集成内部使用。
     """
     try:
+        # 多代理模式：apply <preset> --agents <agents> --task <task>
+        if agents and task:
+            asyncio.run(_apply_with_agents(name, agents, parallel, task, timeout, stop_on_error))
+            return
+
         # 交互模式：apply <preset>
         # 首次体验优化：若未安装集成且为交互式会话，询问是否安装
         if not export:
@@ -663,6 +678,327 @@ def import_cmd(input_file: str, force: bool, dry_run: bool):
         click.echo(f"Unexpected error: {e}", err=True)
         sys.exit(1)
 
+
+# 全局管理器实例
+_agent_manager: Optional['CLIAgentManager'] = None
+
+async def get_agent_manager():
+    """获取代理管理器实例"""
+    global _agent_manager
+    if _agent_manager is None:
+        from .cli_wrapper.manager import CLIAgentManager
+        _agent_manager = CLIAgentManager()
+    return _agent_manager
+
+async def _execute_claude_directly(task: str, timeout: float, preset_name: str):
+    """直接执行Claude命令"""
+    import subprocess
+    import asyncio
+    import os
+    from datetime import datetime
+    from .cli_wrapper.types import ParsedResult, CommandResult
+
+    # 先应用预设获取环境变量
+    from .preset import PresetManager
+    preset_manager = PresetManager()
+    try:
+        preset, _, _ = preset_manager.use_preset(preset_name, apply_to_env=False)
+        env = {**os.environ, **preset.variables}
+    except Exception as e:
+        env = dict(os.environ)
+
+    try:
+        result = subprocess.run(
+            ['claude', '--print', task],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env
+        )
+
+        output = result.stdout.strip() if result.stdout else ""
+        error = result.stderr.strip() if result.stderr else ""
+
+        parsed_result = ParsedResult(
+            output=output,
+            error=error,
+            metadata={"adapter": "claude-direct", "return_code": result.returncode},
+            success=result.returncode == 0
+        )
+
+        return CommandResult(
+            agent_id="claude",
+            session_id="direct",
+            command=task,
+            result=parsed_result,
+            timestamp=datetime.now(),
+            success=result.returncode == 0
+        )
+
+    except subprocess.TimeoutExpired:
+        parsed_result = ParsedResult(
+            output="",
+            error="Command timed out",
+            metadata={"adapter": "claude-direct", "timeout": True},
+            success=False
+        )
+
+        return CommandResult(
+            agent_id="claude",
+            session_id="direct",
+            command=task,
+            result=parsed_result,
+            timestamp=datetime.now(),
+            success=False
+        )
+    except Exception as e:
+        parsed_result = ParsedResult(
+            output="",
+            error=str(e),
+            metadata={"adapter": "claude-direct", "error": True},
+            success=False
+        )
+
+        return CommandResult(
+            agent_id="claude",
+            session_id="direct",
+            command=task,
+            result=parsed_result,
+            timestamp=datetime.now(),
+            success=False
+        )
+
+async def _apply_with_agents(name: str, agents: str, parallel: bool, task: str, timeout: float, stop_on_error: bool):
+    """多代理执行逻辑"""
+    from .cli_wrapper.types import AgentConfig
+
+    agent_list = [a.strip() for a in agents.split(',')]
+
+    # 分离Claude和其他代理
+    claude_agents = [a for a in agent_list if a == 'claude']
+    other_agents = [a for a in agent_list if a != 'claude']
+
+    results = []
+
+    # 直接执行Claude
+    for _ in claude_agents:
+        result = await _execute_claude_directly(task, timeout, name)
+        results.append(result)
+
+    # 执行其他代理
+    if other_agents:
+        manager = await get_agent_manager()
+
+        # 注册代理（如果还未注册）
+        for agent_name in other_agents:
+            try:
+                config = _get_config_for_agent(agent_name)
+                await manager.register_agent(agent_name, 'generic', config)
+            except ValueError:
+                # 代理已存在
+                pass
+
+        # 为每个代理创建会话
+        sessions = {}
+        for agent_name in other_agents:
+            try:
+                session_id = await manager.create_session(agent_name, name)
+                sessions[agent_name] = session_id
+                click.echo(f"✓ Created session for {agent_name}: {session_id[:8]}...")
+            except Exception as e:
+                click.echo(f"✗ Failed to create session for {agent_name}: {e}")
+                return
+
+        # 准备命令
+        commands = []
+        for agent_name, session_id in sessions.items():
+            commands.append({
+                'agent_id': agent_name,
+                'session_id': session_id,
+                'command': task,
+                'stop_on_error': stop_on_error
+            })
+
+        # 执行命令
+        click.echo(f"\n{'Executing in parallel' if parallel else 'Executing sequentially'}...")
+
+        try:
+            if parallel:
+                other_results = await manager.execute_parallel(commands)
+            else:
+                other_results = await manager.execute_sequential(commands)
+
+            results.extend(other_results)
+
+        finally:
+            # 清理会话
+            for agent_name, session_id in sessions.items():
+                try:
+                    await manager.agents[agent_name].terminate_session(session_id)
+                    click.echo(f"✓ Cleaned up session for {agent_name}")
+                except Exception as e:
+                    click.echo(f"✗ Failed to cleanup session for {agent_name}: {e}")
+
+    # 显示结果
+    _display_results(results, parallel)
+
+def _get_config_for_agent(agent_name: str) -> 'AgentConfig':
+    """根据代理名称返回配置"""
+    import os
+    from .cli_wrapper.types import AgentConfig
+
+    # 这里是简化版本，实际使用时需要根据具体的CLI工具配置
+    configs = {
+        'claude': AgentConfig(
+            command=['claude', '--print'],
+            prompt_pattern=r'.*'  # 匹配任何输出，因为claude --print是一次性输出
+        ),
+        'gpt': AgentConfig(
+            command=['gpt', '--interactive'],
+            prompt_pattern=r'.*>\s*$'
+        ),
+        'python': AgentConfig(
+            command=['python', '-c', f'''
+import sys
+print("Python Agent Ready")
+while True:
+    try:
+        cmd = input()
+        if cmd.strip() == "exit":
+            break
+        exec(cmd)
+        print(">>> ", end="", flush=True)
+    except Exception as e:
+        print(f"Error: {{e}}")
+        print(">>> ", end="", flush=True)
+'''],
+            prompt_pattern=r'>>>\s*'
+        ),
+        'bash': AgentConfig(
+            command=['bash', '-i'],
+            prompt_pattern=r'.*\$\s*'
+        ),
+        'cat': AgentConfig(
+            command=['cat'],  # 最简单的测试：cat命令回显输入
+            prompt_pattern=r'.*'  # 匹配任何输出
+        )
+    }
+
+    return configs.get(agent_name, AgentConfig(
+        command=[agent_name],
+        prompt_pattern=r'.*[$#>]\s*$'
+    ))
+
+def _display_results(results: List, parallel: bool):
+    """显示执行结果"""
+    click.echo(f"\n{'='*60}")
+    click.echo("EXECUTION RESULTS")
+    click.echo(f"{'='*60}")
+
+    for i, result in enumerate(results, 1):
+        if isinstance(result, Exception):
+            click.echo(f"\n[{i}] ✗ Error: {result}")
+            continue
+
+        status_icon = "✓" if result.success else "✗"
+        click.echo(f"\n[{i}] {status_icon} Agent: {result.agent_id}")
+        click.echo(f"    Command: {result.command}")
+        click.echo(f"    Time: {result.timestamp.strftime('%H:%M:%S')}")
+
+        if result.success:
+            click.echo(f"    Output:\n{_indent_text(result.result.output)}")
+            if result.result.metadata:
+                click.echo(f"    Metadata: {result.result.metadata}")
+        else:
+            click.echo(f"    Error:\n{_indent_text(result.result.error)}")
+
+def _indent_text(text: str, spaces: int = 8) -> str:
+    """缩进文本"""
+    indent = " " * spaces
+    return "\n".join(indent + line for line in text.split("\n"))
+
+# 新增agents命令组
+@cli.group()
+def agents():
+    """管理CLI代理"""
+    pass
+
+@agents.command('list')
+def agents_list():
+    """列出所有代理和会话"""
+    asyncio.run(_agents_list())
+
+async def _agents_list():
+    """列出代理实现"""
+    manager = await get_agent_manager()
+    agents_info = await manager.list_agents()
+
+    if not agents_info:
+        click.echo("No active agents found.")
+        return
+
+    click.echo("Active Agents:")
+    click.echo("-" * 50)
+
+    for agent_info in agents_info:
+        click.echo(f"\n🤖 {agent_info['agent_id']} ({agent_info['adapter']})")
+        if agent_info['sessions']:
+            click.echo("   Sessions:")
+            for session in agent_info['sessions']:
+                status_icon = "🟢" if session['status']['status'] == 'running' else "🔴"
+                click.echo(f"   {status_icon} {session['session_id'][:8]}... ({session['status']['status']})")
+        else:
+            click.echo("   No active sessions")
+
+@agents.command('status')
+@click.argument('agent_id')
+def agents_status(agent_id):
+    """查看指定代理的详细状态"""
+    asyncio.run(_agents_status(agent_id))
+
+async def _agents_status(agent_id: str):
+    """查看代理状态实现"""
+    manager = await get_agent_manager()
+
+    if agent_id not in manager.agents:
+        click.echo(f"Agent '{agent_id}' not found.")
+        return
+
+    agent = manager.agents[agent_id]
+    sessions = await agent.list_sessions()
+
+    click.echo(f"Agent: {agent_id}")
+    click.echo(f"Adapter: {agent.adapter.name}")
+    click.echo(f"Capabilities: {agent.capabilities}")
+    click.echo(f"Sessions: {len(sessions)}")
+
+    if sessions:
+        click.echo("\nSession Details:")
+        for session in sessions:
+            click.echo(f"  ID: {session['session_id']}")
+            click.echo(f"  Status: {session['status']['status']}")
+            click.echo(f"  Created: {session['created_at']}")
+            click.echo(f"  Commands: {session['status']['command_count']}")
+            click.echo()
+
+@agents.command('terminate')
+@click.argument('agent_id')
+@click.confirmation_option(prompt='Are you sure you want to terminate this agent?')
+def agents_terminate(agent_id):
+    """终止指定代理的所有会话"""
+    asyncio.run(_agents_terminate(agent_id))
+
+async def _agents_terminate(agent_id: str):
+    """终止代理实现"""
+    manager = await get_agent_manager()
+
+    try:
+        await manager.terminate_agent(agent_id)
+        click.echo(f"✓ Agent '{agent_id}' terminated successfully.")
+    except ValueError as e:
+        click.echo(f"✗ Error: {e}")
+    except Exception as e:
+        click.echo(f"✗ Failed to terminate agent: {e}")
 
 def handle_apply_one_time_mode():
     """处理一次性运行模式，绕过Click的参数解析问题"""
