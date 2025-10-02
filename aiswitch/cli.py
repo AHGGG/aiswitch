@@ -1,7 +1,7 @@
 import click
 import sys
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict
 import yaml
 import os
 import subprocess
@@ -145,11 +145,13 @@ def _apply_impl(name: str, export: bool):
 @click.option('--export', is_flag=True, help='输出环境变量export语句，用于shell集成自动应用')
 @click.option('--quiet', '-q', is_flag=True, help='静默模式，不显示执行信息（仅用于一次性运行模式）')
 @click.option('--agents', help='指定代理列表，逗号分隔，例如: claude,gpt')
+@click.option('--agent-presets', help='指定agent到preset的映射，格式: agent1:preset1,agent2:preset2')
+@click.option('--agent-tasks', help='指定agent到task的映射，格式: agent1:"task1",agent2:"task2"')
 @click.option('--parallel', is_flag=True, help='并行执行（默认串行）')
-@click.option('--task', help='要执行的任务内容')
+@click.option('--task', help='要执行的任务内容（未在agent-tasks中指定的agent使用此默认任务）')
 @click.option('--timeout', type=float, default=30.0, help='命令超时时间（秒）')
 @click.option('--stop-on-error', is_flag=True, help='遇到错误时停止执行（仅串行模式）')
-def apply(name: str, export: bool, quiet: bool, agents: Optional[str], parallel: bool, task: Optional[str], timeout: float, stop_on_error: bool):
+def apply(name: str, export: bool, quiet: bool, agents: Optional[str], agent_presets: Optional[str], agent_tasks: Optional[str], parallel: bool, task: Optional[str], timeout: float, stop_on_error: bool):
     """应用指定预设（核心命令）
 
     \b
@@ -160,6 +162,18 @@ def apply(name: str, export: bool, quiet: bool, agents: Optional[str], parallel:
     \b
     多代理模式: aiswitch apply <preset> --agents claude,gpt --task "任务内容"
       使用多个AI代理执行指定任务，支持并行或串行执行。
+      默认所有代理使用同一个preset的环境变量。
+
+    \b
+    多预设模式: aiswitch apply <fallback-preset> --agents claude,codex --agent-presets claude:ds,codex:88codex --task "任务内容"
+      为不同代理指定不同的预设环境变量。
+      格式: --agent-presets agent1:preset1,agent2:preset2
+
+    \b
+    个性化任务模式: aiswitch apply <preset> --agents claude,codex --agent-tasks 'claude:"What is 2+2?",codex:"Write Python code"'
+      为不同代理指定不同的任务内容。
+      格式: --agent-tasks agent1:"task1",agent2:"task2"
+      注意: 使用单引号包围整个参数以保护内部的双引号和逗号
 
     \b
     一次性运行模式: aiswitch apply <preset> -- <cmd> [args...]
@@ -172,8 +186,12 @@ def apply(name: str, export: bool, quiet: bool, agents: Optional[str], parallel:
     """
     try:
         # 多代理模式：apply <preset> --agents <agents> --task <task>
-        if agents and task:
-            asyncio.run(_apply_with_agents(name, agents, parallel, task, timeout, stop_on_error))
+        if agents:
+            # 确保有默认任务或agent-tasks映射
+            if not task and not agent_tasks:
+                click.echo("❌ Error: Must provide either --task or --agent-tasks when using --agents")
+                sys.exit(1)
+            asyncio.run(_apply_with_agents(name, agents, agent_presets, agent_tasks, parallel, task, timeout, stop_on_error))
             return
 
         # 交互模式：apply <preset>
@@ -690,13 +708,29 @@ async def get_agent_manager():
         _agent_manager = CLIAgentManager()
     return _agent_manager
 
-async def _execute_claude_directly(task: str, timeout: float, preset_name: str):
-    """直接执行Claude命令"""
+async def _execute_ai_agent(agent_name: str, task: str, timeout: float, preset_name: str):
+    """统一执行AI CLI agent"""
     import subprocess
-    import asyncio
     import os
     from datetime import datetime
     from .cli_wrapper.types import ParsedResult, CommandResult
+
+    # AI agent命令模板配置
+    agent_commands = {
+        'claude': ['claude', '--print'],
+        'codex': ['codex', 'exec'],  # codex exec接受prompt作为参数
+        'gpt': ['gpt', '--query'],
+        'gemini': ['gemini', '--ask'],
+        'openai': ['openai', '--prompt'],
+        'anthropic': ['anthropic', '--ask'],
+        'chatgpt': ['chatgpt', '--prompt']
+    }
+
+    # 获取命令模板
+    command_template = agent_commands.get(agent_name)
+    if not command_template:
+        # 如果没有预定义，尝试通用格式
+        command_template = [agent_name, '--query']
 
     # 先应用预设获取环境变量
     from .preset import PresetManager
@@ -707,9 +741,12 @@ async def _execute_claude_directly(task: str, timeout: float, preset_name: str):
     except Exception as e:
         env = dict(os.environ)
 
+    # 构建完整命令
+    full_command = command_template + [task]
+
     try:
         result = subprocess.run(
-            ['claude', '--print', task],
+            full_command,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -722,13 +759,13 @@ async def _execute_claude_directly(task: str, timeout: float, preset_name: str):
         parsed_result = ParsedResult(
             output=output,
             error=error,
-            metadata={"adapter": "claude-direct", "return_code": result.returncode},
+            metadata={"adapter": f"{agent_name}-subprocess", "return_code": result.returncode},
             success=result.returncode == 0
         )
 
         return CommandResult(
-            agent_id="claude",
-            session_id="direct",
+            agent_id=agent_name,
+            session_id="subprocess",
             command=task,
             result=parsed_result,
             timestamp=datetime.now(),
@@ -739,13 +776,13 @@ async def _execute_claude_directly(task: str, timeout: float, preset_name: str):
         parsed_result = ParsedResult(
             output="",
             error="Command timed out",
-            metadata={"adapter": "claude-direct", "timeout": True},
+            metadata={"adapter": f"{agent_name}-subprocess", "timeout": True},
             success=False
         )
 
         return CommandResult(
-            agent_id="claude",
-            session_id="direct",
+            agent_id=agent_name,
+            session_id="subprocess",
             command=task,
             result=parsed_result,
             timestamp=datetime.now(),
@@ -755,139 +792,182 @@ async def _execute_claude_directly(task: str, timeout: float, preset_name: str):
         parsed_result = ParsedResult(
             output="",
             error=str(e),
-            metadata={"adapter": "claude-direct", "error": True},
+            metadata={"adapter": f"{agent_name}-subprocess", "error": True},
             success=False
         )
 
         return CommandResult(
-            agent_id="claude",
-            session_id="direct",
+            agent_id=agent_name,
+            session_id="subprocess",
             command=task,
             result=parsed_result,
             timestamp=datetime.now(),
             success=False
         )
 
-async def _apply_with_agents(name: str, agents: str, parallel: bool, task: str, timeout: float, stop_on_error: bool):
-    """多代理执行逻辑"""
-    from .cli_wrapper.types import AgentConfig
+def _parse_agent_presets(agent_presets_str: Optional[str]) -> Dict[str, str]:
+    """解析agent-presets映射字符串"""
+    if not agent_presets_str:
+        return {}
+
+    mapping = {}
+    for pair in agent_presets_str.split(','):
+        if ':' not in pair:
+            click.echo(f"⚠️  Invalid agent-preset mapping format: {pair} (expected agent:preset)")
+            continue
+
+        agent, preset = pair.split(':', 1)
+        mapping[agent.strip()] = preset.strip()
+
+    return mapping
+
+def _parse_agent_tasks(agent_tasks_str: Optional[str]) -> Dict[str, str]:
+    """解析agent-tasks映射字符串，支持带引号的任务内容"""
+    if not agent_tasks_str:
+        return {}
+
+    mapping = {}
+    # 使用简单的状态机解析，处理引号内的逗号
+    current_pair = ""
+    in_quotes = False
+    quote_char = None
+
+    for char in agent_tasks_str:
+        if char in ['"', "'"] and not in_quotes:
+            in_quotes = True
+            quote_char = char
+            current_pair += char
+        elif char == quote_char and in_quotes:
+            in_quotes = False
+            quote_char = None
+            current_pair += char
+        elif char == ',' and not in_quotes:
+            # 处理完整的pair
+            if current_pair.strip():
+                _parse_single_agent_task(current_pair.strip(), mapping)
+            current_pair = ""
+        else:
+            current_pair += char
+
+    # 处理最后一个pair
+    if current_pair.strip():
+        _parse_single_agent_task(current_pair.strip(), mapping)
+
+    return mapping
+
+def _parse_single_agent_task(pair: str, mapping: Dict[str, str]):
+    """解析单个agent:task对"""
+    if ':' not in pair:
+        click.echo(f"⚠️  Invalid agent-task mapping format: {pair} (expected agent:\"task\")")
+        return
+
+    agent, task = pair.split(':', 1)
+    agent = agent.strip()
+    task = task.strip()
+
+    # 移除任务内容的引号
+    if (task.startswith('"') and task.endswith('"')) or \
+       (task.startswith("'") and task.endswith("'")):
+        task = task[1:-1]
+
+    mapping[agent] = task
+
+async def _apply_with_agents(name: str, agents: str, agent_presets: Optional[str], agent_tasks: Optional[str], parallel: bool, task: Optional[str], timeout: float, stop_on_error: bool):
+    """统一的多代理执行逻辑"""
+    import asyncio
 
     agent_list = [a.strip() for a in agents.split(',')]
+    preset_mapping = _parse_agent_presets(agent_presets)
+    task_mapping = _parse_agent_tasks(agent_tasks)
 
-    # 分离Claude和其他代理
-    claude_agents = [a for a in agent_list if a == 'claude']
-    other_agents = [a for a in agent_list if a != 'claude']
+    # 为每个agent确定使用的preset和task
+    agent_configs = []
+    for agent in agent_list:
+        preset = preset_mapping.get(agent, name)  # 如果没有映射，使用fallback preset
+        agent_task = task_mapping.get(agent, task)  # 如果没有映射，使用默认task
 
-    results = []
+        if agent_task is None:
+            click.echo(f"❌ Error: No task specified for agent '{agent}' (use --task for default or --agent-tasks for specific)")
+            sys.exit(1)
 
-    # 直接执行Claude
-    for _ in claude_agents:
-        result = await _execute_claude_directly(task, timeout, name)
-        results.append(result)
+        agent_configs.append((agent, preset, agent_task))
 
-    # 执行其他代理
-    if other_agents:
-        manager = await get_agent_manager()
+    # 显示执行计划
+    click.echo(f"\n{'Executing agents in parallel' if parallel else 'Executing agents sequentially'}:")
+    for agent, preset, agent_task in agent_configs:
+        preset_info = f"preset: {preset}" if preset != name else f"fallback preset: {preset}"
+        task_info = f"task: \"{agent_task[:50]}{'...' if len(agent_task) > 50 else ''}\""
+        click.echo(f"  - {agent} ({preset_info}, {task_info})")
 
-        # 注册代理（如果还未注册）
-        for agent_name in other_agents:
-            try:
-                config = _get_config_for_agent(agent_name)
-                await manager.register_agent(agent_name, 'generic', config)
-            except ValueError:
-                # 代理已存在
-                pass
+    if parallel:
+        # 并行执行所有代理
+        tasks = [_execute_ai_agent(agent, agent_task, timeout, preset) for agent, preset, agent_task in agent_configs]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # 为每个代理创建会话
-        sessions = {}
-        for agent_name in other_agents:
-            try:
-                session_id = await manager.create_session(agent_name, name)
-                sessions[agent_name] = session_id
-                click.echo(f"✓ Created session for {agent_name}: {session_id[:8]}...")
-            except Exception as e:
-                click.echo(f"✗ Failed to create session for {agent_name}: {e}")
-                return
+        # 处理异常结果
+        final_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                from .cli_wrapper.types import ParsedResult, CommandResult
+                from datetime import datetime
 
-        # 准备命令
-        commands = []
-        for agent_name, session_id in sessions.items():
-            commands.append({
-                'agent_id': agent_name,
-                'session_id': session_id,
-                'command': task,
-                'stop_on_error': stop_on_error
-            })
-
-        # 执行命令
-        click.echo(f"\n{'Executing in parallel' if parallel else 'Executing sequentially'}...")
-
-        try:
-            if parallel:
-                other_results = await manager.execute_parallel(commands)
+                agent, preset, agent_task = agent_configs[i]
+                error_result = CommandResult(
+                    agent_id=agent,
+                    session_id="subprocess",
+                    command=agent_task,
+                    result=ParsedResult(
+                        output="",
+                        error=str(result),
+                        metadata={"adapter": f"{agent}-subprocess", "error": True},
+                        success=False
+                    ),
+                    timestamp=datetime.now(),
+                    success=False
+                )
+                final_results.append(error_result)
             else:
-                other_results = await manager.execute_sequential(commands)
+                final_results.append(result)
+        results = final_results
+    else:
+        # 顺序执行代理
+        results = []
+        for agent, preset, agent_task in agent_configs:
+            try:
+                result = await _execute_ai_agent(agent, agent_task, timeout, preset)
+                results.append(result)
 
-            results.extend(other_results)
+                # 如果设置了stop_on_error且执行失败，停止执行
+                if stop_on_error and not result.success:
+                    click.echo(f"✗ Agent {agent} failed, stopping execution due to --stop-on-error")
+                    break
 
-        finally:
-            # 清理会话
-            for agent_name, session_id in sessions.items():
-                try:
-                    await manager.agents[agent_name].terminate_session(session_id)
-                    click.echo(f"✓ Cleaned up session for {agent_name}")
-                except Exception as e:
-                    click.echo(f"✗ Failed to cleanup session for {agent_name}: {e}")
+            except Exception as e:
+                from .cli_wrapper.types import ParsedResult, CommandResult
+                from datetime import datetime
+
+                error_result = CommandResult(
+                    agent_id=agent,
+                    session_id="subprocess",
+                    command=agent_task,
+                    result=ParsedResult(
+                        output="",
+                        error=str(e),
+                        metadata={"adapter": f"{agent}-subprocess", "error": True},
+                        success=False
+                    ),
+                    timestamp=datetime.now(),
+                    success=False
+                )
+                results.append(error_result)
+
+                if stop_on_error:
+                    click.echo(f"✗ Agent {agent} failed with exception, stopping execution due to --stop-on-error")
+                    break
 
     # 显示结果
     _display_results(results, parallel)
 
-def _get_config_for_agent(agent_name: str) -> 'AgentConfig':
-    """根据代理名称返回配置"""
-    import os
-    from .cli_wrapper.types import AgentConfig
-
-    # 这里是简化版本，实际使用时需要根据具体的CLI工具配置
-    configs = {
-        'claude': AgentConfig(
-            command=['claude', '--print'],
-            prompt_pattern=r'.*'  # 匹配任何输出，因为claude --print是一次性输出
-        ),
-        'gpt': AgentConfig(
-            command=['gpt', '--interactive'],
-            prompt_pattern=r'.*>\s*$'
-        ),
-        'python': AgentConfig(
-            command=['python', '-c', f'''
-import sys
-print("Python Agent Ready")
-while True:
-    try:
-        cmd = input()
-        if cmd.strip() == "exit":
-            break
-        exec(cmd)
-        print(">>> ", end="", flush=True)
-    except Exception as e:
-        print(f"Error: {{e}}")
-        print(">>> ", end="", flush=True)
-'''],
-            prompt_pattern=r'>>>\s*'
-        ),
-        'bash': AgentConfig(
-            command=['bash', '-i'],
-            prompt_pattern=r'.*\$\s*'
-        ),
-        'cat': AgentConfig(
-            command=['cat'],  # 最简单的测试：cat命令回显输入
-            prompt_pattern=r'.*'  # 匹配任何输出
-        )
-    }
-
-    return configs.get(agent_name, AgentConfig(
-        command=[agent_name],
-        prompt_pattern=r'.*[$#>]\s*$'
-    ))
 
 def _display_results(results: List, parallel: bool):
     """显示执行结果"""
