@@ -2,51 +2,24 @@
 
 ## 概述
 
-本文档定义了aiswitch多代理系统中各组件间通信的API规范，基于JSON-RPC 2.0协议，扩展了多代理协调所需的方法和数据结构。
+本文档定义了aiswitch多代理系统的API接口规范，基于SDK直接集成架构，提供Python内部API接口用于多代理协调和管理。
 
-## 协议基础
+## 架构基础
 
-### 传输层
-- **主要传输方式**: stdio (标准输入/输出)
-- **备用传输方式**: Unix Domain Socket, TCP Socket
-- **数据格式**: JSON
-- **编码**: UTF-8
-- **消息分隔**: 换行符 (`\n`)
+### SDK集成模式
+- **主要集成方式**: 直接集成各种AI SDK
+- **通信模式**: Python异步函数调用
+- **数据传递**: Python对象和数据类
+- **错误处理**: Python异常机制
 
-### JSON-RPC 2.0 基础结构
+### API设计原则
 
-所有消息都遵循JSON-RPC 2.0规范：
+所有API都遵循以下原则：
 
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "method_name",
-  "params": {},
-  "id": 1
-}
-```
-
-**响应格式**:
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {},
-  "id": 1
-}
-```
-
-**错误格式**:
-```json
-{
-  "jsonrpc": "2.0",
-  "error": {
-    "code": -32000,
-    "message": "Error message",
-    "data": {}
-  },
-  "id": 1
-}
-```
+- **异步优先**: 所有IO操作使用async/await
+- **类型安全**: 使用类型注解和数据类
+- **错误透明**: 明确的错误类型和处理
+- **可扩展性**: 支持新的SDK和代理类型
 
 ## 数据类型定义
 
@@ -90,30 +63,36 @@ enum CoordinationMode {
 ### 复合数据类型
 
 #### Task
-```typescript
-interface Task {
-  id: string;                    // 任务唯一标识
-  type: string;                  // 任务类型
-  payload: any;                  // 任务载荷
-  timeout?: number;              // 超时时间(秒)
-  priority?: number;             // 优先级 (1-10)
-  metadata?: Record<string, any>; // 元数据
-  created_at: string;            // 创建时间 (ISO 8601)
-}
+```python
+@dataclass
+class Task:
+    id: str                        # 任务唯一标识
+    prompt: str                    # 任务提示词
+    system_prompt: Optional[str]   # 系统提示词
+    max_tokens: Optional[int]      # 最大token数
+    temperature: Optional[float]   # 温度参数
+    timeout: float = 30.0          # 超时时间(秒)
+    priority: int = 5              # 优先级 (1-10)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    created_at: datetime = field(default_factory=datetime.now)
+    chain_mode: bool = False       # 是否链式模式
+    context: Optional[str] = None  # 上下文信息
+```
 ```
 
 #### TaskResult
-```typescript
-interface TaskResult {
-  task_id: string;               // 任务ID
-  agent_id: string;              // 代理ID
-  status: TaskStatus;            // 任务状态
-  result?: any;                  // 执行结果
-  error?: string;                // 错误信息
-  tokens_used?: TokenUsage;      // Token使用量
-  execution_time_ms: number;     // 执行时间(毫秒)
-  completed_at: string;          // 完成时间
-}
+```python
+@dataclass
+class TaskResult:
+    task_id: str                   # 任务ID
+    success: bool                  # 是否成功
+    result: Optional[str] = None   # 执行结果
+    error: Optional[str] = None    # 错误信息
+    tokens_used: Optional[TokenUsage] = None  # Token使用量
+    execution_time_ms: int = 0     # 执行时间(毫秒)
+    completed_at: datetime = field(default_factory=datetime.now)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+```
 ```
 
 #### AgentMetrics
@@ -158,49 +137,50 @@ interface EnvSnapshot {
 
 ## API 方法定义
 
-### 1. 代理生命周期管理
+### 1. 多代理管理器 (MultiAgentManager)
 
-#### 1.1 agent.initialize
-初始化代理实例。
+#### 1.1 register_agent
+注册新代理实例。
 
-**请求参数**:
-```typescript
-interface InitializeParams {
-  agent_id: string;              // 代理唯一标识
-  preset: string;                // 预设名称
-  config?: Record<string, any>;  // 额外配置
-  timeout?: number;              // 初始化超时
-}
+**方法签名**:
+```python
+async def register_agent(
+    self,
+    agent_id: str,
+    adapter_type: str,
+    config: Optional[AgentConfig] = None
+) -> None
 ```
 
-**响应结果**:
-```typescript
-interface InitializeResult {
-  agent_id: string;
-  status: AgentStatus;
-  capabilities: string[];        // 代理能力列表
-  version: string;               // 代理版本
-  initialized_at: string;
-}
+**参数说明**:
+- `agent_id`: 代理唯一标识
+- `adapter_type`: 适配器类型 (claude, openai, generic)
+- `config`: 可选的代理配置
+
+**异常**:
+- `ValueError`: 未知的适配器类型
+- `RuntimeError`: 代理初始化失败
+
+#### 1.2 execute_task
+在指定代理上执行任务。
+
+**方法签名**:
+```python
+async def execute_task(
+    self,
+    agent_ids: List[str],
+    task: Task,
+    mode: str = "parallel"
+) -> List[TaskResult]
 ```
 
-**示例**:
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "agent.initialize",
-  "params": {
-    "agent_id": "claude-001",
-    "preset": "anthropic-claude",
-    "config": {
-      "max_tokens": 4000,
-      "temperature": 0.7
-    },
-    "timeout": 30
-  },
-  "id": 1
-}
-```
+**参数说明**:
+- `agent_ids`: 代理ID列表
+- `task`: 要执行的任务
+- `mode`: 执行模式 (parallel, sequential)
+
+**返回值**:
+- `List[TaskResult]`: 任务执行结果列表
 
 #### 1.2 agent.shutdown
 优雅关闭代理实例。
@@ -604,57 +584,52 @@ interface PublishEventParams {
 
 ## 使用示例
 
-### 基本代理交互流程
+### 基本多代理使用流程
 
-```bash
-# 1. 初始化代理
-curl -X POST -H "Content-Type: application/json" -d '{
-  "jsonrpc": "2.0",
-  "method": "agent.initialize",
-  "params": {
-    "agent_id": "claude-001",
-    "preset": "anthropic-claude"
-  },
-  "id": 1
-}' http://localhost:8080/rpc
+```python
+# 1. 初始化多代理管理器
+manager = MultiAgentManager()
 
-# 2. 分配任务
-curl -X POST -H "Content-Type: application/json" -d '{
-  "jsonrpc": "2.0",
-  "method": "task.assign",
-  "params": {
-    "task": {
-      "id": "task-001",
-      "type": "code_generation",
-      "payload": {
-        "prompt": "Generate a Python function to calculate fibonacci",
-        "language": "python"
-      },
-      "timeout": 60
-    }
-  },
-  "id": 2
-}' http://localhost:8080/rpc
+# 2. 注册代理
+await manager.register_agent("claude-001", "claude")
+await manager.register_agent("gpt-001", "openai")
 
-# 3. 查询任务状态
-curl -X POST -H "Content-Type: application/json" -d '{
-  "jsonrpc": "2.0",
-  "method": "task.status",
-  "params": {
-    "task_id": "task-001"
-  },
-  "id": 3
-}' http://localhost:8080/rpc
+# 3. 创建任务
+task = Task(
+    id="task-001",
+    prompt="写一个Python快速排序函数",
+    max_tokens=1000,
+    temperature=0.7
+)
 
-# 4. 获取任务结果
-curl -X POST -H "Content-Type: application/json" -d '{
-  "jsonrpc": "2.0",
-  "method": "task.result",
-  "params": {
-    "task_id": "task-001"
-  },
-  "id": 4
-}' http://localhost:8080/rpc
+# 4. 并行执行任务
+results = await manager.execute_task(
+    agent_ids=["claude-001", "gpt-001"],
+    task=task,
+    mode="parallel"
+)
+
+# 5. 处理结果
+for result in results:
+    if result.success:
+        print(f"任务成功: {result.result}")
+    else:
+        print(f"任务失败: {result.error}")
+```
+
+### 环境切换示例
+
+```python
+# 切换代理环境
+success = await manager.switch_agent_env(
+    agent_id="claude-001",
+    preset="anthropic-claude-sonnet"
+)
+
+if success:
+    print("环境切换成功")
+else:
+    print("环境切换失败")
 ```
 
 ### 环境切换流程
@@ -768,4 +743,4 @@ curl -X POST -H "Content-Type: application/json" -d '{
 - 定期清理临时数据和日志
 - 防止信息泄露到错误消息中
 
-这个API规范为aiswitch多代理系统提供了完整的通信协议定义，确保了各组件间的可靠、高效通信。
+这个API规范为aiswitch多代理系统提供了简洁的Python内部API接口定义，基于SDK直接集成，确保了各组件间的高效协调和管理。

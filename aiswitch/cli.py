@@ -152,7 +152,8 @@ def _apply_impl(name: str, export: bool):
 @click.option('--timeout', type=float, default=30.0, help='命令超时时间（秒）')
 @click.option('--stop-on-error', is_flag=True, help='遇到错误时停止执行（仅串行模式）')
 @click.option('--interactive', is_flag=True, help='启动交互式模式，支持与单个agent多轮对话')
-def apply(name: str, export: bool, quiet: bool, agents: Optional[str], agent_presets: Optional[str], agent_tasks: Optional[str], parallel: bool, task: Optional[str], timeout: float, stop_on_error: bool, interactive: bool):
+@click.option('--interactive-mode', type=click.Choice(['auto', 'textual', 'multi-agent', 'exec', 'pty', 'subprocess', 'show']), default='auto', help='选择交互式实现方式（auto=优先textual，textual=Textual界面，multi-agent=多代理界面，exec=直接exec，pty=伪终端，subprocess=子进程，show=显示命令）')
+def apply(name: str, export: bool, quiet: bool, agents: Optional[str], agent_presets: Optional[str], agent_tasks: Optional[str], parallel: bool, task: Optional[str], timeout: float, stop_on_error: bool, interactive: bool, interactive_mode: str):
     """应用指定预设（核心命令）
 
     \b
@@ -177,9 +178,18 @@ def apply(name: str, export: bool, quiet: bool, agents: Optional[str], agent_pre
       注意: 使用单引号包围整个参数以保护内部的双引号和逗号
 
     \b
-    交互式AI对话模式: aiswitch apply <preset> --interactive [--agents <agent>]
+    交互式AI对话模式: aiswitch apply <preset> --interactive [--agents <agent>] [--interactive-mode <mode>]
       启动与指定AI agent的交互式对话会话，支持多轮对话。
       默认使用claude agent，或通过--agents指定单个agent。
+
+      交互模式选项:
+        auto         - 自动选择最佳方式（默认，优先textual模式）
+        textual      - Textual界面（推荐，支持富文本显示）
+        multi-agent  - 新的多代理界面（支持多个agent协调）
+        exec         - 最流畅（直接替换进程，退出时回到shell）
+        pty          - 平衡性能（保持aiswitch进程）
+        subprocess   - 基本兼容性
+
       输入'exit'、'quit'或按Ctrl+C退出会话。
 
     \b
@@ -205,7 +215,7 @@ def apply(name: str, export: bool, quiet: bool, agents: Optional[str], agent_pre
                 # 如果没有指定agents，默认使用claude
                 agent_name = 'claude'
 
-            _execute_ai_agent_interactive(agent_name, name)
+            _execute_ai_agent_interactive(agent_name, name, interactive_mode)
             return
 
         # 多代理模式：apply <preset> --agents <agents> --task <task>
@@ -828,7 +838,7 @@ async def _execute_ai_agent(agent_name: str, task: str, timeout: float, preset_n
             success=False
         )
 
-def _execute_ai_agent_interactive(agent_name: str, preset_name: str):
+def _execute_ai_agent_interactive(agent_name: str, preset_name: str, mode: str = 'auto'):
     """交互式执行AI CLI agent，支持多轮对话"""
     import subprocess
     import os
@@ -837,7 +847,7 @@ def _execute_ai_agent_interactive(agent_name: str, preset_name: str):
     # AI agent命令模板配置
     agent_commands = {
         'claude': ['claude'],
-        'codex': ['codex'],
+        'codex': ['codex', 'exec'],
         'gpt': ['gpt'],
         'gemini': ['gemini'],
         'openai': ['openai'],
@@ -856,71 +866,56 @@ def _execute_ai_agent_interactive(agent_name: str, preset_name: str):
     preset_manager = PresetManager()
     try:
         preset, _, _ = preset_manager.use_preset(preset_name, apply_to_env=False)
-        env = {**os.environ, **preset.variables}
+
+        # 过滤掉shell函数，只保留正常的环境变量
+        clean_env = {}
+        for key, value in os.environ.items():
+            if not key.startswith('BASH_FUNC_') and not key.endswith('%%'):
+                clean_env[key] = value
+
+        # 添加preset变量
+        env = {**clean_env, **preset.variables}
     except Exception as e:
         click.echo(f"Error applying preset '{preset_name}': {e}", err=True)
         return
 
-    click.echo(f"🚀 Starting interactive session with {agent_name} using preset '{preset_name}'")
-    click.echo("💡 Type 'exit', 'quit' or press Ctrl+C to quit")
-    click.echo("=" * 50)
+    # 移除所有无关打印，直接启动
 
-    # 先测试命令是否可用
+    # 根据用户选择的模式执行
     try:
-        # 测试命令是否存在且可执行
-        test_result = subprocess.run(
-            command_template + ['--help'],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        if test_result.returncode != 0:
-            click.echo(f"❌ Error: {agent_name} command failed help test. Return code: {test_result.returncode}")
-            if test_result.stderr:
-                click.echo(f"Error output: {test_result.stderr}")
-            return
-    except subprocess.TimeoutExpired:
-        click.echo(f"⚠️  {agent_name} command help took too long, but continuing anyway...")
-    except FileNotFoundError:
-        click.echo(f"❌ Error: Command '{command_template[0]}' not found. Ensure it's installed and in PATH.", err=True)
-        return
-    except Exception as e:
-        click.echo(f"⚠️  Could not test {agent_name} command, but continuing anyway: {e}")
+        if mode == 'textual':
+            # Textual界面模式：解决输入延迟问题
+            _execute_with_textual(agent_name, command_template, env)
+        elif mode == 'multi-agent':
+            # 新的多代理界面模式
+            _execute_with_multi_agent(preset_name)
+        elif mode == 'exec':
+            # 最流畅的方式：直接exec替换当前进程
+            _execute_with_exec(command_template, env)
 
-    # 使用PTY实现真正的交互式会话
-    try:
-        import pty
-        import os
-        import sys
+        elif mode == 'pty':
+            # PTY方式：保持进程层次但使用伪终端
+            _execute_with_pty(command_template, env)
 
-        click.echo(f"✅ Starting interactive session with {agent_name}...")
-        click.echo("💡 This will maintain conversation context")
-        click.echo("=" * 50)
+        elif mode == 'subprocess':
+            # subprocess方式：基本兼容性
+            _execute_with_subprocess(command_template, env)
 
-        # 使用pty.spawn让claude有一个真正的TTY环境
-        # 先设置环境变量
-        old_env = dict(os.environ)
-        os.environ.update(env)
+        elif mode == 'show':
+            # 显示模式：告诉用户要运行的确切命令
+            _show_command_to_run(command_template, env)
 
-        try:
-            # 直接spawn claude，这样它就有完整的TTY环境
-            pty.spawn(command_template)
-        finally:
-            # 恢复原始环境变量
-            os.environ.clear()
-            os.environ.update(old_env)
-
-        click.echo("\n👋 Interactive session ended")
-
-    except ImportError:
-        # PTY不可用时的fallback（比如Windows）
-        click.echo("⚠️  PTY not available, using fallback mode")
-        try:
-            result = subprocess.run(command_template, env=env)
-            click.echo(f"👋 Session ended with return code: {result.returncode}")
-        except Exception as e:
-            click.echo(f"❌ Error in fallback mode: {e}")
+        else:  # mode == 'auto'
+            # auto模式：优先使用新的多代理界面
+            if sys.stdin.isatty():
+                try:
+                    # 首先尝试多代理界面
+                    _execute_with_multi_agent(preset_name)
+                except ImportError:
+                    # 回退到textual界面
+                    _execute_with_textual(agent_name, command_template, env)
+            else:
+                _execute_with_subprocess(command_template, env)
 
     except KeyboardInterrupt:
         click.echo("\n👋 Interactive session ended")
@@ -928,6 +923,202 @@ def _execute_ai_agent_interactive(agent_name: str, preset_name: str):
         click.echo(f"❌ Error: Command '{command_template[0]}' not found. Ensure it's installed and in PATH.", err=True)
     except Exception as e:
         click.echo(f"❌ Error starting interactive session: {e}", err=True)
+
+
+def _execute_with_textual(agent_name, command_template, env):
+    """使用Textual界面模式，解决输入延迟问题"""
+    try:
+        from .textual_interactive import run_textual_interactive
+        run_textual_interactive(agent_name, command_template, env)
+    except ImportError:
+        click.echo("❌ Error: Textual not available. Install with: pip install textual", err=True)
+        # 回退到exec模式
+        _execute_with_exec(command_template, env)
+
+
+def _execute_with_multi_agent(preset_name):
+    """使用新的多代理界面模式"""
+    try:
+        from .textual_interactive import run_multi_agent_interface
+        run_multi_agent_interface(preset=preset_name)
+    except ImportError:
+        click.echo("❌ Error: Multi-agent interface not available. Install with: pip install textual", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"❌ Error starting multi-agent interface: {e}", err=True)
+        sys.exit(1)
+
+def _execute_with_exec(command_template, env):
+    """使用exec直接替换进程（最流畅，但会结束当前进程）"""
+    import os
+
+    if hasattr(os, 'execvpe'):
+        # 过滤掉shell函数，只保留正常的环境变量
+        clean_env = {}
+        for key, value in os.environ.items():
+            if not key.startswith('BASH_FUNC_') and not key.endswith('%%'):
+                clean_env[key] = value
+
+        # 添加preset变量
+        new_env = {**clean_env, **env}
+        os.execvpe(command_template[0], command_template, new_env)
+    else:
+        raise Exception("exec not available, falling back")
+
+
+def _execute_with_pty(command_template, env):
+    """使用PTY方式（平衡性能和控制）"""
+    import pty
+    import os
+
+    old_env = dict(os.environ)
+    os.environ.update(env)
+
+    try:
+        # 完全使用系统原生PTY - 零Python干预
+        pty.spawn(command_template)
+
+    finally:
+        os.environ.clear()
+        os.environ.update(old_env)
+
+
+def _show_command_to_run(command_template, env):
+    """显示用户应该手动运行的命令（最简单的解决方案）"""
+    import os
+
+    click.echo("💡 Manual execution mode - run this command in your shell:")
+    click.echo("=" * 60)
+
+    # 显示环境变量设置
+    env_commands = []
+    for key, value in env.items():
+        if key not in os.environ or os.environ[key] != value:
+            # 转义特殊字符
+            escaped_value = value.replace('"', '\\"').replace('$', '\\$')
+            env_commands.append(f'export {key}="{escaped_value}"')
+
+    # 构建命令
+    cmd_str = ' '.join(command_template)
+
+    # 输出完整命令
+    if env_commands:
+        click.echo("# Set environment variables:")
+        for env_cmd in env_commands:
+            click.echo(f"  {env_cmd}")
+        click.echo("\n# Run the command:")
+        click.echo(f"  {cmd_str}")
+        click.echo("\n# Or run everything in one line:")
+        all_commands = "; ".join(env_commands + [cmd_str])
+        click.echo(f"  {all_commands}")
+    else:
+        click.echo("# Run this command:")
+        click.echo(f"  {cmd_str}")
+
+    click.echo("=" * 60)
+    click.echo("💡 Copy and paste the command above for the smoothest experience!")
+
+
+def _execute_with_script(command_template, env):
+    """创建临时脚本直接执行（绕过Python进程开销）"""
+    import tempfile
+    import os
+    import stat
+
+    click.echo("🚀 Creating temporary execution script for maximum performance...")
+
+    try:
+        # 创建临时脚本
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
+            script_path = f.name
+
+            # 写入环境变量设置
+            f.write("#!/bin/bash\n")
+            f.write("# Auto-generated aiswitch execution script\n\n")
+
+            # 设置环境变量
+            for key, value in env.items():
+                # 转义特殊字符
+                escaped_value = value.replace('"', '\\"').replace('$', '\\$').replace('`', '\\`')
+                f.write(f'export {key}="{escaped_value}"\n')
+
+            f.write("\n# Execute target command\n")
+            # 直接执行命令
+            cmd_str = ' '.join(f'"{arg}"' if ' ' in arg else arg for arg in command_template)
+            f.write(f"exec {cmd_str}\n")
+
+        # 设置执行权限
+        os.chmod(script_path, stat.S_IRWXU)
+
+        click.echo(f"📄 Script created: {script_path}")
+        click.echo("⚡ Launching native session...")
+
+        # 直接替换当前进程执行脚本
+        os.execv('/bin/bash', ['bash', script_path])
+
+    except Exception as e:
+        click.echo(f"❌ Script execution failed: {e}")
+        # 清理临时文件
+        try:
+            if 'script_path' in locals():
+                os.unlink(script_path)
+        except:
+            pass
+        # fallback
+        click.echo("🔄 Falling back to shell method...")
+        _execute_with_shell(command_template, env)
+
+    finally:
+        # 清理临时文件（通常不会执行到这里，因为exec会替换进程）
+        try:
+            if 'script_path' in locals():
+                os.unlink(script_path)
+        except:
+            pass
+
+
+def _execute_with_shell(command_template, env):
+    """使用shell直接执行（最接近原生体验）"""
+    import os
+    import subprocess
+
+    click.echo("⚡ Using direct shell execution (native experience)...")
+
+    # 方法1: 尝试使用os.system（最直接）
+    try:
+        # 构建环境变量设置
+        env_vars = []
+        for key, value in env.items():
+            if key not in os.environ or os.environ[key] != value:
+                env_vars.append(f'export {key}="{value}"')
+
+        # 构建完整的shell命令
+        env_setup = '; '.join(env_vars)
+        cmd_str = ' '.join(command_template)
+
+        if env_setup:
+            full_command = f"{env_setup}; {cmd_str}"
+        else:
+            full_command = cmd_str
+
+        # 直接使用shell执行
+        return_code = os.system(full_command)
+        click.echo(f"👋 Session ended with return code: {return_code >> 8}")
+
+    except Exception as e:
+        click.echo(f"⚠️  Shell execution failed: {e}")
+        # fallback到subprocess
+        result = subprocess.run(command_template, env=env)
+        click.echo(f"👋 Session ended with return code: {result.returncode}")
+
+
+def _execute_with_subprocess(command_template, env):
+    """使用subprocess方式（基本兼容性）"""
+    import subprocess
+
+    click.echo("⚙️  Using subprocess mode (basic compatibility)...")
+    result = subprocess.run(command_template, env=env)
+    click.echo(f"👋 Session ended with return code: {result.returncode}")
 
 def _parse_agent_presets(agent_presets_str: Optional[str]) -> Dict[str, str]:
     """解析agent-presets映射字符串"""

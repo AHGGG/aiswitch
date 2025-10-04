@@ -1,0 +1,431 @@
+/* AISwitch Textual UI Styles */
+
+/* Global styles */
+Screen {
+    background: $surface;
+    color: $text;
+}
+
+/* Header and Footer */
+Header {
+    dock: top;
+    height: 3;
+    background: $primary;
+    color: $text-primary;
+}
+
+Footer {
+    dock: bottom;
+    height: 1;
+    background: $surface-lighten-1;
+}
+
+/* Main container */
+#main_container {
+    padding: 1;
+    height: 100%;
+    layout: vertical;
+}
+
+/* Agent Selector Styles */
+#agent_selector {
+    dock: top;
+    height: 3;
+    margin-bottom: 1;
+    layout: horizontal;
+    background: $surface;
+    border: solid $primary;
+}
+
+#agent_selector #label {
+    width: 8;
+    margin-right: 1;
+    text-align: right;
+    content-align: center middle;
+    text-style: bold;
+    color: $accent;
+}
+
+#agent_selector #agent_select {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#agent_selector #status_indicator {
+    width: 3;
+    text-align: center;
+    content-align: center middle;
+    text-style: bold;
+}
+
+#agent_selector #status_text {
+    width: 12;
+    content-align: center middle;
+    text-style: bold;
+}
+
+/* Agent-specific colors for selector */
+#agent_selector.claude {
+    border: solid blue;
+}
+
+#agent_selector.claude #status_indicator.online {
+    color: blue;
+}
+
+#agent_selector.openai {
+    border: solid green;
+}
+
+#agent_selector.openai #status_indicator.online {
+    color: green;
+}
+
+#agent_selector.generic {
+    border: solid yellow;
+}
+
+#agent_selector.generic #status_indicator.online {
+    color: yellow;
+}
+
+/* Status indicator states */
+#status_indicator.online {
+    color: green;
+}
+
+#status_indicator.busy {
+    color: yellow;
+}
+
+#status_indicator.error {
+    color: red;
+}
+
+#status_indicator.offline {
+    color: gray;
+}
+
+#status_indicator.connecting {
+    color: blue;
+}
+
+/* Chat Display Styles */
+#chat_display {
+    height: 1fr;
+    border: solid $primary;
+    scrollbar-size: 1 1;
+    margin-bottom: 1;
+    padding: 1;
+}
+
+#chat_display:focus {
+    border: solid $accent;
+}
+
+/* Agent-specific chat display styling */
+#chat_display.claude {
+    border: solid blue;
+}
+
+#chat_display.openai {
+    border: solid green;
+}
+
+#chat_display.generic {
+    border: solid yellow;
+}
+
+/* Input Panel Styles */
+#input_panel {
+    dock: bottom;
+    height: 3;
+    margin-bottom: 1;
+    layout: horizontal;
+    background: $surface;
+}
+
+#input_panel #main_input {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#input_panel #main_input.command-mode {
+    border: solid yellow;
+    background: $warning-lighten-3;
+}
+
+#input_panel #main_input.claude {
+    border: solid blue;
+}
+
+#input_panel #main_input.openai {
+    border: solid green;
+}
+
+#input_panel #main_input.generic {
+    border: solid yellow;
+}
+
+#input_panel #send_btn {
+    width: 8;
+    margin-right: 1;
+}
+
+#input_panel #settings_btn {
+    width: 4;
+}
+
+/* Status Bar Styles */
+#status_bar {
+    dock: bottom;
+    height: 1;
+    background: $surface-lighten-1;
+    layout: horizontal;
+    padding: 0 1;
+}
+
+#status_bar Static {
+    margin-right: 2;
+    content-align: center middle;
+}
+
+#status_bar #connection_indicator {
+    width: 3;
+    text-align: center;
+    text-style: bold;
+}
+
+#status_bar #message_counter {
+    width: 14;
+}
+
+#status_bar #preset_display {
+    width: 16;
+}
+
+#status_bar #preset_display.claude {
+    color: blue;
+}
+
+#status_bar #preset_display.openai {
+    color: green;
+}
+
+#status_bar #preset_display.custom {
+    color: $accent;
+}
+
+#status_bar #mode_display {
+    width: 18;
+}
+
+#status_bar #mode_display.parallel {
+    color: $warning;
+    text-style: bold;
+}
+
+#status_bar #mode_display.sequential {
+    color: $success;
+}
+
+#status_bar #status_message {
+    width: 1fr;
+}
+
+#status_bar #status_message.temporary {
+    color: $accent;
+    text-style: italic;
+}
+
+/* Button Styles */
+Button {
+    margin: 0 1;
+}
+
+Button.primary {
+    background: $primary;
+    color: $text-primary;
+}
+
+Button.primary:hover {
+    background: $primary-lighten-1;
+}
+
+Button.success {
+    background: $success;
+    color: $text-success;
+}
+
+Button.warning {
+    background: $warning;
+    color: $text-warning;
+}
+
+Button.error {
+    background: $error;
+    color: $text-error;
+}
+
+/* Select Widget Styles */
+Select {
+    border: solid $primary;
+}
+
+Select:focus {
+    border: solid $accent;
+}
+
+/* Input Widget Styles */
+Input {
+    border: solid $primary;
+    background: $surface;
+}
+
+Input:focus {
+    border: solid $accent;
+    background: $surface-lighten-1;
+}
+
+Input > .input--placeholder {
+    color: $text-muted;
+    text-style: italic;
+}
+
+/* Animation and Transitions */
+ChatDisplay {
+    transition: border 300ms;
+}
+
+StatusBar Static {
+    transition: color 200ms;
+}
+
+#agent_selector {
+    transition: border 200ms;
+}
+
+#input_panel #main_input {
+    transition: border 200ms, background 200ms;
+}
+
+Button {
+    transition: background 150ms;
+}
+
+/* Responsive Design - Textual doesn't support @media queries */
+/* These rules would apply in smaller screens, but we'll use fixed layouts */
+
+/* Dark Mode Enhancements */
+.dark {
+    /* Enhanced contrast for dark mode */
+}
+
+.dark #chat_display {
+    background: $surface-darken-1;
+}
+
+.dark #input_panel #main_input {
+    background: $surface-darken-1;
+}
+
+.dark #status_bar {
+    background: $surface-darken-2;
+}
+
+/* Light Mode Adjustments */
+.light {
+    /* Light mode specific styling */
+}
+
+.light #chat_display {
+    background: $surface-lighten-1;
+    border: solid $primary-darken-1;
+}
+
+.light #input_panel #main_input {
+    background: $surface-lighten-2;
+}
+
+/* High Contrast Mode */
+.high-contrast {
+    /* High contrast accessibility mode */
+}
+
+.high-contrast #chat_display.claude {
+    border: solid blue;
+}
+
+.high-contrast #chat_display.openai {
+    border: solid green;
+}
+
+.high-contrast #chat_display.generic {
+    border: solid yellow;
+}
+
+/* Loading States */
+.loading {
+    opacity: 0.6;
+}
+
+.loading * {
+    text-style: dim;
+}
+
+/* Error States */
+.error {
+    border: solid red;
+    background: $error-lighten-3;
+}
+
+.error * {
+    color: $error;
+}
+
+/* Success States */
+.success {
+    border: solid green;
+    background: $success-lighten-3;
+}
+
+/* Focus Rings for Accessibility */
+*:focus {
+    outline: solid $accent;
+}
+
+/* Custom Scrollbars */
+ScrollView > .scrollbar {
+    background: $surface-lighten-2;
+}
+
+ScrollView > .scrollbar--thumb {
+    background: $primary;
+}
+
+/* Code highlighting in chat */
+.code-block {
+    background: $surface-darken-2;
+    border: solid $primary-darken-1;
+    padding: 1;
+    margin: 1 0;
+}
+
+/* Message type indicators */
+.user-message {
+    color: $accent;
+}
+
+.agent-message {
+    color: $text;
+}
+
+.system-message {
+    color: $text-muted;
+    text-style: italic;
+}
+
+.error-message {
+    color: $error;
+    text-style: bold;
+}

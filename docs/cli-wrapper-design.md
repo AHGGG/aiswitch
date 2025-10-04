@@ -1,17 +1,17 @@
-# aiswitch CLI代理包装器设计方案
+# aiswitch 多代理集成设计方案
 
 ## 概述
 
-本文档详细描述了aiswitch CLI代理包装器的完整设计方案，目标是实现一个能够管理和协调多个AI CLI工具的系统，支持模拟用户输入、捕获CLI输出、并提供统一的接口来控制多个CLI工具。
+本文档描述了aiswitch多代理系统的设计方案，基于claude-agent-sdk直接集成不同的AI代理，实现统一的多代理协调和管理平台。该设计摒弃了复杂的CLI stdio拦截方案，采用SDK直接集成的方式，提供更简洁、稳定和高效的解决方案。
 
 ## 核心目标
 
-1. **进程管理**: 启动、管理和终止外部CLI工具进程
-2. **输入模拟**: 模拟用户输入，向CLI工具发送命令和数据
-3. **输出捕获**: 实时捕获并处理CLI工具的输出
-4. **统一接口**: 提供统一的API来控制不同的CLI工具
-5. **并发支持**: 支持多个CLI工具同时运行和协调
-6. **会话管理**: 管理长期运行的CLI会话状态
+1. **代理集成**: 基于claude-agent-sdk等SDK直接集成各种AI代理
+2. **统一接口**: 提供统一的API来控制不同的AI代理
+3. **并发支持**: 支持多个代理同时运行和协调
+4. **会话管理**: 管理长期运行的代理会话状态
+5. **环境管理**: 动态切换不同的API预设和环境变量
+6. **监控追踪**: 实时监控代理状态和token使用情况
 
 ## 技术架构
 
@@ -19,23 +19,23 @@
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                CLIAgentManager                          │
+│                MultiAgentManager                        │
 ├─────────────────────────────────────────────────────────┤
 │  ┌─────────────────┐  ┌─────────────────┐  ┌──────────┐ │
-│  │ CLIAgentWrapper │  │ CLIAgentWrapper │  │    ...   │ │
-│  │   (claude)      │  │   (codex)       │  │          │ │
+│  │   AgentWrapper  │  │   AgentWrapper  │  │    ...   │ │
+│  │   (claude)      │  │   (openai)      │  │          │ │
 │  └─────────────────┘  └─────────────────┘  └──────────┘ │
 └─────────────────────────────────────────────────────────┘
            │                     │                     │
 ┌─────────────────┐    ┌─────────────────┐    ┌──────────────┐
-│CLIProcessSession│    │CLIProcessSession│    │      ...     │
-│   + stdio       │    │   + stdio       │    │              │
-│   + adapter     │    │   + adapter     │    │              │
+│  AgentSession   │    │  AgentSession   │    │      ...     │
+│ + SDK Client    │    │ + SDK Client    │    │              │
+│ + Adapter       │    │ + Adapter       │    │              │
 └─────────────────┘    └─────────────────┘    └──────────────┘
            │                     │                     │
 ┌─────────────────┐    ┌─────────────────┐    ┌──────────────┐
-│   subprocess    │    │   subprocess    │    │      ...     │
-│  claude-cli     │    │  codex-cli      │    │              │
+│ claude-agent-   │    │   openai-sdk    │    │ other-agent  │
+│     sdk         │    │                 │    │     sdk      │
 └─────────────────┘    └─────────────────┘    └──────────────┘
 ```
 
@@ -43,397 +43,317 @@
 
 ```
 aiswitch/
-├── cli_wrapper/
+├── multi_agent/
 │   ├── __init__.py
-│   ├── agent_wrapper.py          # CLIAgentWrapper主类
-│   ├── process_session.py        # CLI进程会话管理
-│   ├── stdio_controller.py       # 标准输入输出控制
+│   ├── manager.py                # MultiAgentManager主类
+│   ├── agent_wrapper.py          # AgentWrapper包装器
+│   ├── session.py                # Agent会话管理
 │   ├── adapters/
 │   │   ├── __init__.py
 │   │   ├── base_adapter.py       # 适配器基类
-│   │   ├── claude_adapter.py     # Claude CLI适配器
-│   │   ├── generic_adapter.py    # 通用CLI适配器
-│   │   └── codex_adapter.py      # Codex CLI适配器
-│   ├── manager.py                # CLIAgentManager
+│   │   ├── claude_adapter.py     # Claude SDK适配器
+│   │   ├── openai_adapter.py     # OpenAI SDK适配器
+│   │   └── generic_adapter.py    # 通用适配器
+│   ├── coordination.py           # 多代理协调
+│   ├── metrics.py                # 指标收集
 │   └── types.py                  # 类型定义
+├── textual_interactive.py        # 已有的交互式UI
 └── cli.py                        # 扩展现有CLI命令
 ```
 
 ## 核心类设计
 
-### 1. CLIAgentWrapper (agent_wrapper.py)
+### 1. MultiAgentManager (multi_agent/manager.py)
 
-主要的CLI代理包装器类，类似于参考JS代码中的ClaudeAcpAgent。
+多代理管理器，统一管理和协调多个AI代理。
 
 ```python
-from typing import Dict, Optional, Any, List
+from typing import Dict, List, Any, Optional
+import asyncio
+from .agent_wrapper import AgentWrapper
+from .adapters import ClaudeAdapter, OpenAIAdapter, GenericAdapter
+from .types import Task, TaskResult, AgentConfig
+from .coordination import MultiAgentCoordinator
+from .metrics import MetricsCollector
+
+class MultiAgentManager:
+    """多代理管理器，统一管理多个AI代理"""
+
+    def __init__(self):
+        self.agents: Dict[str, AgentWrapper] = {}
+        self.coordinator = MultiAgentCoordinator()
+        self.metrics_collector = MetricsCollector()
+        self.adapters = {
+            'claude': ClaudeAdapter,
+            'openai': OpenAIAdapter,
+            'generic': GenericAdapter
+        }
+
+    async def register_agent(self, agent_id: str, adapter_type: str, config: AgentConfig = None) -> None:
+        """注册新代理"""
+        if adapter_type not in self.adapters:
+            raise ValueError(f"Unknown adapter type: {adapter_type}")
+
+        adapter_class = self.adapters[adapter_type]
+        adapter = adapter_class(config or {})
+
+        agent = AgentWrapper(agent_id, adapter)
+        await agent.initialize()
+        self.agents[agent_id] = agent
+
+    async def execute_task(self, agent_ids: List[str], task: Task, mode: str = "parallel") -> List[TaskResult]:
+        """执行任务在指定的代理上"""
+        if mode == "parallel":
+            return await self.coordinator.execute_parallel(self.agents, agent_ids, task)
+        elif mode == "sequential":
+            return await self.coordinator.execute_sequential(self.agents, agent_ids, task)
+        else:
+            raise ValueError(f"Unknown execution mode: {mode}")
+
+    async def switch_agent_env(self, agent_id: str, preset: str) -> bool:
+        """切换指定代理的环境变量"""
+        if agent_id not in self.agents:
+            raise ValueError(f"Agent {agent_id} not found")
+
+        return await self.agents[agent_id].switch_environment(preset)
+
+    def get_agent_status(self, agent_id: str) -> Dict[str, Any]:
+        """获取代理状态"""
+        if agent_id not in self.agents:
+            return {"error": "Agent not found"}
+
+        return self.agents[agent_id].get_status()
+
+    async def list_agents(self) -> List[Dict[str, Any]]:
+        """列出所有代理"""
+        agents_info = []
+        for agent_id, agent in self.agents.items():
+            status = agent.get_status()
+            metrics = await self.metrics_collector.get_agent_metrics(agent_id)
+            agents_info.append({
+                "agent_id": agent_id,
+                "adapter_type": agent.adapter.adapter_type,
+                "status": status,
+                "metrics": metrics
+            })
+        return agents_info
+
+    async def terminate_agent(self, agent_id: str) -> None:
+        """终止指定代理"""
+        if agent_id in self.agents:
+            await self.agents[agent_id].terminate()
+            del self.agents[agent_id]
+```
+
+### 2. AgentWrapper (multi_agent/agent_wrapper.py)
+
+代理包装器，管理单个AI代理的生命周期和状态。
+
+```python
 import asyncio
 import uuid
 from datetime import datetime
+from typing import Optional, Dict, Any
+from .adapters.base_adapter import BaseAdapter
+from .session import AgentSession
+from .types import Task, TaskResult, AgentStatus
 
-class CLIAgentWrapper:
-    """CLI代理包装器，管理单个CLI工具的多个会话"""
+class AgentWrapper:
+    """代理包装器，管理单个AI代理"""
 
-    def __init__(self, agent_id: str, adapter: BaseCliAdapter):
+    def __init__(self, agent_id: str, adapter: BaseAdapter):
         self.agent_id = agent_id
         self.adapter = adapter
-        self.sessions: Dict[str, CLIProcessSession] = {}
-        self.tool_use_cache: Dict[str, Any] = {}
-        self.file_content_cache: Dict[str, str] = {}
-        self.background_processes: Dict[str, BackgroundProcess] = {}
-        self.capabilities: Optional[Dict[str, Any]] = None
+        self.session: Optional[AgentSession] = None
+        self.status = AgentStatus.STOPPED
+        self.created_at = datetime.now()
+        self.last_activity = datetime.now()
+        self.task_count = 0
+        self.current_task: Optional[str] = None
 
     async def initialize(self) -> Dict[str, Any]:
-        """初始化代理，返回能力信息"""
-        self.capabilities = await self.adapter.get_capabilities()
-        return {
-            "agent_id": self.agent_id,
-            "capabilities": self.capabilities,
-            "status": "initialized",
-            "initialized_at": datetime.now().isoformat()
-        }
+        """初始化代理"""
+        try:
+            await self.adapter.initialize()
+            self.status = AgentStatus.IDLE
+            self.last_activity = datetime.now()
 
-    async def new_session(self, preset: str, cwd: str = None, env: Dict[str, str] = None) -> str:
+            return {
+                "agent_id": self.agent_id,
+                "adapter_type": self.adapter.adapter_type,
+                "status": self.status.value,
+                "initialized_at": self.created_at.isoformat()
+            }
+        except Exception as e:
+            self.status = AgentStatus.ERROR
+            raise RuntimeError(f"Failed to initialize agent {self.agent_id}: {e}")
+
+    async def create_session(self, preset: str, env_vars: Dict[str, str] = None) -> str:
         """创建新会话"""
-        session_id = str(uuid.uuid4())
+        if self.session:
+            await self.session.close()
 
-        session = CLIProcessSession(
+        session_id = str(uuid.uuid4())
+        self.session = AgentSession(
             session_id=session_id,
             agent_id=self.agent_id,
             adapter=self.adapter,
             preset=preset,
-            cwd=cwd,
-            env=env or {}
+            env_vars=env_vars or {}
         )
 
-        await session.start()
-        self.sessions[session_id] = session
-
+        await self.session.start()
         return session_id
 
-    async def execute_command(self, session_id: str, command: str, timeout: float = 30.0) -> CommandResult:
-        """在指定会话中执行命令"""
-        if session_id not in self.sessions:
-            raise ValueError(f"Session {session_id} not found")
+    async def execute_task(self, task: Task, timeout: float = 30.0) -> TaskResult:
+        """执行任务"""
+        if self.status != AgentStatus.IDLE:
+            raise RuntimeError(f"Agent {self.agent_id} is not available, status: {self.status}")
 
-        session = self.sessions[session_id]
-        return await session.execute_command(command, timeout)
-
-    async def terminate_session(self, session_id: str) -> None:
-        """终止指定会话"""
-        if session_id in self.sessions:
-            await self.sessions[session_id].terminate()
-            del self.sessions[session_id]
-
-    async def get_session_status(self, session_id: str) -> Dict[str, Any]:
-        """获取会话状态"""
-        if session_id not in self.sessions:
-            return {"error": "Session not found"}
-
-        session = self.sessions[session_id]
-        return await session.get_status()
-
-    async def list_sessions(self) -> List[Dict[str, Any]]:
-        """列出所有会话"""
-        sessions_info = []
-        for session_id, session in self.sessions.items():
-            status = await session.get_status()
-            sessions_info.append({
-                "session_id": session_id,
-                "status": status,
-                "created_at": session.created_at.isoformat()
-            })
-        return sessions_info
-```
-
-### 2. CLIProcessSession (process_session.py)
-
-管理单个CLI进程会话的生命周期。
-
-```python
-import subprocess
-import asyncio
-from datetime import datetime
-from typing import Optional, Dict, Any
-from .stdio_controller import StdioController
-from .types import CommandResult, SessionStatus
-
-class CLIProcessSession:
-    """CLI进程会话，管理单个CLI工具实例"""
-
-    def __init__(self, session_id: str, agent_id: str, adapter, preset: str, cwd: str = None, env: Dict[str, str] = None):
-        self.session_id = session_id
-        self.agent_id = agent_id
-        self.adapter = adapter
-        self.preset = preset
-        self.cwd = cwd
-        self.env = env or {}
-        self.created_at = datetime.now()
-
-        # 进程相关
-        self.process: Optional[subprocess.Popen] = None
-        self.stdio_controller: Optional[StdioController] = None
-        self.status = SessionStatus.STOPPED
-        self.cancelled = False
-
-        # 状态跟踪
-        self.command_count = 0
+        self.status = AgentStatus.BUSY
+        self.current_task = task.id
+        self.task_count += 1
         self.last_activity = datetime.now()
 
-    async def start(self) -> None:
-        """启动CLI进程"""
         try:
-            # 构建命令和环境
-            command = await self.adapter.build_command(self.preset)
-            full_env = {**os.environ, **self.env}
+            if not self.session:
+                # 如果没有会话，创建一个默认会话
+                await self.create_session("default")
 
-            # 启动进程
-            self.process = subprocess.Popen(
-                command,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=0,
-                cwd=self.cwd,
-                env=full_env
-            )
+            result = await self.session.execute_task(task, timeout)
 
-            # 创建stdio控制器
-            self.stdio_controller = StdioController(self.process, self.adapter)
-            await self.stdio_controller.start()
-
-            # 等待初始化完成
-            await self.adapter.wait_for_ready(self.stdio_controller)
-
-            self.status = SessionStatus.RUNNING
+            self.status = AgentStatus.IDLE
+            self.current_task = None
             self.last_activity = datetime.now()
 
+            return result
+
         except Exception as e:
-            self.status = SessionStatus.ERROR
-            raise RuntimeError(f"Failed to start session: {e}")
+            self.status = AgentStatus.ERROR
+            self.current_task = None
+            raise RuntimeError(f"Task execution failed: {e}")
 
-    async def execute_command(self, command: str, timeout: float = 30.0) -> CommandResult:
-        """执行命令并返回结果"""
-        if self.status != SessionStatus.RUNNING:
-            raise RuntimeError(f"Session not running, status: {self.status}")
-
-        self.command_count += 1
-        self.last_activity = datetime.now()
-
+    async def switch_environment(self, preset: str) -> bool:
+        """切换环境变量"""
         try:
-            # 格式化命令
-            formatted_command = await self.adapter.format_command(command)
-
-            # 发送命令并等待响应
-            result = await self.stdio_controller.execute_command(formatted_command, timeout)
-
-            # 解析结果
-            parsed_result = await self.adapter.parse_result(result)
-
-            return CommandResult(
-                session_id=self.session_id,
-                agent_id=self.agent_id,
-                command=command,
-                result=parsed_result,
-                timestamp=datetime.now(),
-                success=True
-            )
-
-        except asyncio.TimeoutError:
-            return CommandResult(
-                session_id=self.session_id,
-                agent_id=self.agent_id,
-                command=command,
-                result={"error": "Command timeout"},
-                timestamp=datetime.now(),
-                success=False
-            )
+            if self.session:
+                await self.session.switch_environment(preset)
+            self.last_activity = datetime.now()
+            return True
         except Exception as e:
-            return CommandResult(
-                session_id=self.session_id,
-                agent_id=self.agent_id,
-                command=command,
-                result={"error": str(e)},
-                timestamp=datetime.now(),
-                success=False
-            )
+            print(f"Failed to switch environment for {self.agent_id}: {e}")
+            return False
 
-    async def terminate(self) -> None:
-        """优雅终止进程"""
-        self.cancelled = True
-        self.status = SessionStatus.STOPPING
-
-        if self.stdio_controller:
-            await self.stdio_controller.stop()
-
-        if self.process:
-            try:
-                # 尝试优雅关闭
-                self.process.terminate()
-                await asyncio.wait_for(self.process.wait(), timeout=5.0)
-            except asyncio.TimeoutError:
-                # 强制关闭
-                self.process.kill()
-                await self.process.wait()
-
-        self.status = SessionStatus.STOPPED
-
-    async def get_status(self) -> Dict[str, Any]:
-        """获取会话状态"""
+    def get_status(self) -> Dict[str, Any]:
+        """获取代理状态"""
         return {
-            "session_id": self.session_id,
             "agent_id": self.agent_id,
             "status": self.status.value,
+            "current_task": self.current_task,
+            "task_count": self.task_count,
             "created_at": self.created_at.isoformat(),
             "last_activity": self.last_activity.isoformat(),
-            "command_count": self.command_count,
-            "cancelled": self.cancelled,
-            "process_id": self.process.pid if self.process else None
+            "session_id": self.session.session_id if self.session else None
         }
+
+    async def terminate(self) -> None:
+        """终止代理"""
+        self.status = AgentStatus.STOPPING
+
+        if self.session:
+            await self.session.close()
+            self.session = None
+
+        if hasattr(self.adapter, 'close'):
+            await self.adapter.close()
+
+        self.status = AgentStatus.STOPPED
 ```
 
-### 3. StdioController (stdio_controller.py)
+### 3. ClaudeAdapter (multi_agent/adapters/claude_adapter.py)
 
-控制标准输入输出，处理与CLI进程的实际通信。
+Claude代理适配器，基于claude-agent-sdk实现。
 
 ```python
-import asyncio
-import re
-from typing import Optional, AsyncIterator, Dict, Any
-from .types import RawCommandResult
+import os
+from typing import Dict, Any, AsyncIterator
+from .base_adapter import BaseAdapter
+from ..types import Task, TaskResult
 
-class StdioController:
-    """标准输入输出控制器，处理与CLI进程的通信"""
+try:
+    from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
+    CLAUDE_SDK_AVAILABLE = True
+except ImportError:
+    CLAUDE_SDK_AVAILABLE = False
 
-    def __init__(self, process: subprocess.Popen, adapter):
-        self.process = process
-        self.adapter = adapter
-        self.output_buffer = asyncio.Queue()
-        self.input_lock = asyncio.Lock()
-        self.running = False
-        self.output_task: Optional[asyncio.Task] = None
-        self.error_task: Optional[asyncio.Task] = None
+class ClaudeAdapter(BaseAdapter):
+    """Claude代理适配器，使用claude-agent-sdk"""
 
-    async def start(self) -> None:
-        """启动输出监听任务"""
-        self.running = True
-        self.output_task = asyncio.create_task(self._output_reader())
-        self.error_task = asyncio.create_task(self._error_reader())
+    def __init__(self, config: Dict[str, Any] = None):
+        super().__init__("claude")
+        self.config = config or {}
+        self.env_vars: Dict[str, str] = {}
 
-    async def stop(self) -> None:
-        """停止监听任务"""
-        self.running = False
+    async def initialize(self) -> bool:
+        """初始化Claude适配器"""
+        if not CLAUDE_SDK_AVAILABLE:
+            raise RuntimeError("claude-agent-sdk not available")
 
-        if self.output_task:
-            self.output_task.cancel()
-            try:
-                await self.output_task
-            except asyncio.CancelledError:
-                pass
+        # 检查必要的环境变量
+        required_vars = ["ANTHROPIC_API_KEY"]
+        missing_vars = [var for var in required_vars if not os.getenv(var)]
 
-        if self.error_task:
-            self.error_task.cancel()
-            try:
-                await self.error_task
-            except asyncio.CancelledError:
-                pass
+        if missing_vars:
+            raise RuntimeError(f"Missing required environment variables: {missing_vars}")
 
-    async def _output_reader(self) -> None:
-        """后台任务：读取stdout"""
+        return True
+
+    async def execute_task(self, task: Task, timeout: float = 30.0) -> TaskResult:
+        """执行任务"""
         try:
-            while self.running and self.process.poll() is None:
-                line = await asyncio.to_thread(self.process.stdout.readline)
-                if not line:
-                    break
-                await self.output_buffer.put(('stdout', line.rstrip('\n\r')))
-        except Exception as e:
-            await self.output_buffer.put(('error', f"Output reader error: {e}"))
+            # 应用环境变量
+            for key, value in self.env_vars.items():
+                os.environ[key] = value
 
-    async def _error_reader(self) -> None:
-        """后台任务：读取stderr"""
-        try:
-            while self.running and self.process.poll() is None:
-                line = await asyncio.to_thread(self.process.stderr.readline)
-                if not line:
-                    break
-                await self.output_buffer.put(('stderr', line.rstrip('\n\r')))
-        except Exception as e:
-            await self.output_buffer.put(('error', f"Error reader error: {e}"))
+            # 准备选项
+            options = ClaudeAgentOptions(
+                system_prompt=task.system_prompt if hasattr(task, 'system_prompt') else None,
+                max_tokens=task.max_tokens if hasattr(task, 'max_tokens') else 4000,
+                temperature=task.temperature if hasattr(task, 'temperature') else 0.7
+            )
 
-    async def send_input(self, text: str) -> None:
-        """发送输入到CLI进程"""
-        async with self.input_lock:
-            try:
-                self.process.stdin.write(text + '\n')
-                self.process.stdin.flush()
-            except Exception as e:
-                raise RuntimeError(f"Failed to send input: {e}")
+            # 执行查询
+            response_chunks = []
+            async for message in query(prompt=task.prompt, options=options):
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            response_chunks.append(block.text)
 
-    async def execute_command(self, command: str, timeout: float = 30.0) -> RawCommandResult:
-        """执行命令并收集完整输出"""
-        output_lines = []
-        error_lines = []
+            result_text = ''.join(response_chunks)
 
-        # 发送命令
-        await self.send_input(command)
-
-        # 收集输出直到检测到命令完成
-        start_time = asyncio.get_event_loop().time()
-
-        try:
-            while True:
-                # 检查超时
-                if asyncio.get_event_loop().time() - start_time > timeout:
-                    raise asyncio.TimeoutError("Command execution timeout")
-
-                # 获取输出
-                try:
-                    output_type, line = await asyncio.wait_for(
-                        self.output_buffer.get(),
-                        timeout=1.0
-                    )
-
-                    if output_type == 'stdout':
-                        output_lines.append(line)
-                    elif output_type == 'stderr':
-                        error_lines.append(line)
-                    elif output_type == 'error':
-                        error_lines.append(line)
-
-                    # 检查是否命令执行完成
-                    if await self.adapter.is_command_complete(output_lines, error_lines):
-                        break
-
-                except asyncio.TimeoutError:
-                    # 检查进程状态
-                    if self.process.poll() is not None:
-                        break
-                    continue
+            return TaskResult(
+                task_id=task.id,
+                success=True,
+                result=result_text,
+                metadata={"adapter": "claude", "chunks": len(response_chunks)}
+            )
 
         except Exception as e:
-            error_lines.append(f"Execution error: {e}")
+            return TaskResult(
+                task_id=task.id,
+                success=False,
+                error=str(e),
+                metadata={"adapter": "claude"}
+            )
 
-        return RawCommandResult(
-            stdout=output_lines,
-            stderr=error_lines,
-            command=command,
-            completed=True
-        )
-
-    async def get_real_time_output(self) -> AsyncIterator[tuple[str, str]]:
-        """获取实时输出流"""
-        while self.running:
-            try:
-                output_type, line = await asyncio.wait_for(
-                    self.output_buffer.get(),
-                    timeout=1.0
-                )
-                yield output_type, line
-            except asyncio.TimeoutError:
-                continue
-            except Exception:
-                break
+    async def switch_environment(self, preset: str, env_vars: Dict[str, str]) -> bool:
+        """切换环境变量"""
+        try:
+            self.env_vars = env_vars.copy()
+            return True
+        except Exception:
+            return False
 ```
 
 ### 4. 适配器系统
@@ -1027,15 +947,18 @@ async def _agents_terminate(agent_id: str):
 aiswitch apply gpt4 --agents claude --task "写一个Python快速排序函数"
 
 # 并行使用多个代理对比结果
-aiswitch apply gpt4 --agents claude,codex --parallel --task "实现二分查找算法"
+aiswitch apply gpt4 --agents claude,openai --parallel --task "实现二分查找算法"
 
 # 串行执行，可以利用前一个代理的输出
-aiswitch apply gpt4 --agents claude,codex --task "先分析需求，再写代码" --stop-on-error
+aiswitch apply gpt4 --agents claude,openai --task "先分析需求，再写代码" --stop-on-error
+
+# 交互式模式使用Claude SDK
+aiswitch apply ds --interactive --interactive-mode textual --agents claude
 
 # 管理代理
 aiswitch agents list                    # 列出所有活跃代理
 aiswitch agents status claude           # 查看Claude代理详细状态
-aiswitch agents terminate claude        # 终止Claude代理所有会话
+aiswitch agents terminate claude        # 终止Claude代理
 ```
 
 ### 高级用法
@@ -1044,55 +967,58 @@ aiswitch agents terminate claude        # 终止Claude代理所有会话
 # 自定义超时时间
 aiswitch apply gpt4 --agents claude --task "复杂任务" --timeout 60
 
-# 遇到错误时停止后续执行
-aiswitch apply gpt4 --agents claude,codex,gpt --task "测试任务" --stop-on-error
+# 环境切换
+aiswitch env switch claude anthropic-claude-sonnet
+
+# 监控代理状态
+aiswitch metrics show --agent claude --timeframe day
 ```
 
 ## 实现优先级
 
-### Phase 1: 核心功能 (1-2周)
-1. 实现基础类框架：CLIAgentWrapper, CLIProcessSession, StdioController
-2. 实现基础适配器：BaseCliAdapter, GenericAdapter
-3. 实现CLIAgentManager基本功能
-4. 集成到现有CLI，支持单代理执行
+### Phase 1: 核心SDK集成 (1-2周)
+1. 实现基础类框架：MultiAgentManager, AgentWrapper, AgentSession
+2. 实现基础适配器：BaseAdapter, ClaudeAdapter
+3. 集成claude-agent-sdk到现有textual_interactive.py
+4. 扩展CLI支持--agents参数
 
-### Phase 2: 完善功能 (1周)
-1. 实现ClaudeAdapter（需要根据实际Claude CLI调整）
-2. 完善错误处理和异常恢复
-3. 添加日志记录和调试功能
-4. 实现并行/串行执行模式
+### Phase 2: 多代理协调 (1周)
+1. 实现MultiAgentCoordinator协调器
+2. 支持并行/串行执行模式
+3. 完善错误处理和异常恢复
+4. 添加代理状态监控
 
-### Phase 3: 优化和扩展 (1周)
-1. 性能优化和内存管理
-2. 添加更多适配器（根据需要）
-3. 完善CLI命令和用户体验
-4. 添加配置文件支持
+### Phase 3: 扩展和优化 (1周)
+1. 添加OpenAI等其他SDK适配器
+2. 实现环境动态切换功能
+3. 添加指标收集和token追踪
+4. 完善CLI命令和用户体验
 
 ## 技术注意事项
 
-### 1. 异步编程
+### 1. SDK集成
+- 使用各种AI SDK的最新版本和最佳实践
+- 正确处理SDK的异步模式和错误处理
+- 管理不同SDK的认证和配置
+
+### 2. 异步编程
 - 所有IO操作使用asyncio
 - 正确处理异步任务的生命周期
 - 避免阻塞事件循环
 
-### 2. 进程管理
-- 确保进程正确终止，避免僵尸进程
-- 处理进程意外退出的情况
-- 实现进程重启机制
-
 ### 3. 错误处理
-- 网络超时和进程崩溃的优雅处理
+- SDK错误的优雅处理和重试机制
 - 详细的错误日志记录
 - 用户友好的错误信息
 
-### 4. 内存管理
-- 定期清理输出缓冲区
-- 限制日志文件大小
-- 监控内存使用情况
+### 4. 环境管理
+- 安全的环境变量切换
+- 防止敏感信息泄露
+- 环境隔离和状态一致性
 
-### 5. 安全考虑
-- 输入验证和清理
-- 进程权限控制
-- 敏感信息保护
+### 5. 性能优化
+- SDK连接复用和池化
+- 合理的并发控制
+- 内存使用监控和优化
 
-这个设计方案提供了完整的CLI代理包装器实现路径，具备良好的扩展性和维护性，可以根据实际需求进行调整和优化。
+这个设计方案基于SDK直接集成，摒弃了复杂的CLI进程管理，提供了更简洁、稳定和高效的多代理协调解决方案。
