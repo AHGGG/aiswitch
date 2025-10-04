@@ -36,6 +36,11 @@ class InputPanel(Container):
             yield Button("Send", id="send_btn", variant="primary")
             yield Button("⚙️", id="settings_btn", variant="default")
 
+    async def on_mount(self) -> None:
+        """Focus input when mounted."""
+        input_widget = self.query_one("#main_input", Input)
+        input_widget.focus()
+
     def watch_current_agent(self, agent: str) -> None:
         """Update input placeholder when agent changes."""
         placeholders = {

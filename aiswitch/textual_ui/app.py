@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 from textual.app import App, ComposeResult
@@ -30,7 +31,7 @@ from .events import (
 class AISwitch(App):
     """AISwitch main Textual application with multi-agent support."""
 
-    # CSS_PATH = "styles.tcss"  # Commented out for now
+    CSS_PATH = Path(__file__).parent / "styles.tcss"
 
     TITLE = "AISwitch - Multi-Agent Terminal Interface"
     SUB_TITLE = "Seamlessly switch between AI agents"
@@ -42,8 +43,8 @@ class AISwitch(App):
         Binding("ctrl+o", "load_session", "Load Session"),
         Binding("f1", "show_help", "Help"),
         Binding("f2", "show_settings", "Settings"),
-        Binding("tab", "next_agent", "Next Agent"),
-        Binding("shift+tab", "prev_agent", "Previous Agent"),
+        Binding("ctrl+n", "next_agent", "Next Agent"),
+        Binding("ctrl+p", "prev_agent", "Previous Agent"),
         Binding("ctrl+1", "set_sequential", "Sequential Mode"),
         Binding("ctrl+2", "set_parallel", "Parallel Mode"),
         Binding("ctrl+r", "refresh_agents", "Refresh Agents"),
@@ -234,6 +235,7 @@ class AISwitch(App):
         """Refresh available agents."""
         container = self.query_one("#main_container", MultiAgentContainer)
         await container.refresh_state()
+
 
     # Helper methods
     async def _save_session(self, session_name: Optional[str] = None) -> None:

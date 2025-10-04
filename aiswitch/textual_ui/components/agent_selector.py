@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from typing import Dict, List, Any, Optional
 
-from textual import on
 from textual.containers import Container, Horizontal
 from textual.reactive import reactive
-from textual.widgets import Select, Static
+from textual.widgets import Static
 
 from ..events import AgentSelected
 
@@ -26,50 +25,46 @@ class AgentSelector(Container):
         """Compose the agent selector UI."""
         with Horizontal():
             yield Static("Agent:", id="label")
-            yield Select(
-                options=[("No agents available", "")],
-                prompt="Select agent",
-                id="agent_select",
-                allow_blank=True
-            )
+            yield Static("No agent selected", id="agent_display")
             yield Static("●", id="status_indicator")
             yield Static("Ready", id="status_text")
+            yield Static("[Tab] Next | [F3] Menu", id="shortcuts")
 
     def watch_available_agents(self, agents: List[Dict[str, Any]]) -> None:
         """Update available agents list."""
-        select = self.query_one("#agent_select", Select)
-
-        # Create options from agents list
-        options = []
-        for agent in agents:
-            agent_id = agent.get("agent_id", agent.get("id", ""))
-            agent_name = agent.get("name", agent_id)
-            adapter_type = agent.get("adapter_type", "")
-
-            # Format display name
-            if adapter_type:
-                display_name = f"{agent_name} ({adapter_type})"
-            else:
-                display_name = agent_name
-
-            options.append((display_name, agent_id))
-
-        select.set_options(options)
-
         # Set first agent as default if none selected
         if agents and not self.current_agent:
-            self.current_agent = agents[0].get("agent_id", agents[0].get("id", ""))
+            first_agent = agents[0]
+            agent_id = first_agent.get("agent_id", first_agent.get("id", ""))
+            if agent_id:
+                self.current_agent = agent_id
 
     def watch_current_agent(self, agent: str) -> None:
         """Update current selected agent."""
-        select = self.query_one("#agent_select", Select)
+        agent_display = self.query_one("#agent_display", Static)
 
-        # Only update if different from current value and agent is not empty
-        if agent and select.value != agent:
-            select.value = agent
-        elif not agent:
-            # Clear selection if no agent
-            select.clear()
+        # Update display text
+        if agent:
+            # Find agent info for display
+            agent_info = None
+            for a in self.available_agents:
+                if a.get("agent_id", a.get("id", "")) == agent:
+                    agent_info = a
+                    break
+
+            if agent_info:
+                agent_name = agent_info.get("name", agent)
+                adapter_type = agent_info.get("adapter_type", "")
+                if adapter_type:
+                    display_text = f"{agent_name} ({adapter_type})"
+                else:
+                    display_text = agent_name
+            else:
+                display_text = agent
+
+            agent_display.update(display_text)
+        else:
+            agent_display.update("No agent selected")
 
         # Update status indicator
         self.update_status_indicator(agent)
@@ -130,12 +125,6 @@ class AgentSelector(Container):
             css_class = agent_class_map.get(agent.lower(), "default")
             self.add_class(css_class)
 
-    @on(Select.Changed, "#agent_select")
-    def handle_agent_change(self, event: Select.Changed) -> None:
-        """Handle agent selection change."""
-        if event.value != Select.BLANK and event.value != self.current_agent:
-            self.current_agent = event.value
-            self.post_message(AgentSelected(event.value))
 
     def set_agents(self, agents: List[Dict[str, Any]]) -> None:
         """Set available agents."""
@@ -180,14 +169,8 @@ class AgentSelector(Container):
 
     def enable_agent(self, agent_id: str) -> None:
         """Enable an agent."""
-        select = self.query_one("#agent_select", Select)
-
-        # Find and enable option
-        for i, (_, value) in enumerate(select._options):
-            if value == agent_id:
-                # Re-enable by refreshing options
-                self.watch_available_agents(self.available_agents)
-                break
+        # Update agent status to indicate enabled state
+        self.update_agent_status(agent_id, "online")
 
     def disable_agent(self, agent_id: str) -> None:
         """Disable an agent."""

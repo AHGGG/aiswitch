@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from textual.containers import Container, Horizontal
 from textual.reactive import reactive
@@ -17,6 +17,8 @@ class StatusBar(Container):
     current_preset = reactive("", layout=False)
     execution_mode = reactive("sequential", layout=False)
     current_status = reactive("Ready", layout=False)
+    current_agent = reactive("", layout=False)
+    available_agents = reactive([], layout=False)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -26,6 +28,7 @@ class StatusBar(Container):
         """Compose the status bar UI."""
         with Horizontal():
             yield Static("●", id="connection_indicator")
+            yield Static("Agent: none", id="agent_display")
             yield Static("Messages: 0", id="message_counter")
             yield Static("Preset: none", id="preset_display")
             yield Static("Mode: sequential", id="mode_display")
@@ -246,3 +249,44 @@ class StatusBar(Container):
         if self._temporary_message_timer:
             self._temporary_message_timer.cancel()
             self._temporary_message_timer = None
+
+    def watch_current_agent(self, agent: str) -> None:
+        """Update current agent display."""
+        agent_display = self.query_one("#agent_display", Static)
+
+        if agent:
+            # Find agent info for display
+            agent_info = None
+            for a in self.available_agents:
+                if a.get("agent_id", a.get("id", "")) == agent:
+                    agent_info = a
+                    break
+
+            if agent_info:
+                agent_name = agent_info.get("name", agent)
+                adapter_type = agent_info.get("adapter_type", "")
+                if adapter_type:
+                    display_text = f"Agent: {agent_name} ({adapter_type})"
+                else:
+                    display_text = f"Agent: {agent_name}"
+            else:
+                display_text = f"Agent: {agent}"
+
+            agent_display.update(display_text)
+
+            # Update CSS class for agent-specific styling
+            agent_display.remove_class("claude", "openai", "generic")
+            if agent:
+                css_class = agent.lower()
+                if css_class in ["claude", "openai", "generic"]:
+                    agent_display.add_class(css_class)
+        else:
+            agent_display.update("Agent: none")
+
+    def set_agents(self, agents: List[Dict[str, Any]]) -> None:
+        """Set available agents list."""
+        self.available_agents = agents
+
+    def set_current_agent(self, agent: str) -> None:
+        """Set current agent."""
+        self.current_agent = agent

@@ -10,7 +10,6 @@ from textual.reactive import reactive
 from textual.containers import Container
 from textual.css.query import NoMatches
 
-from .agent_selector import AgentSelector
 from .chat_display import ChatDisplay
 from .input_panel import InputPanel
 from .status_bar import StatusBar
@@ -45,7 +44,6 @@ class MultiAgentContainer(Container):
     def compose(self):
         """Compose the multi-agent container UI."""
         from textual.app import ComposeResult
-        yield AgentSelector(id="agent_selector")
         yield ChatDisplay(id="chat_display")
         yield InputPanel(id="input_panel")
         yield StatusBar(id="status_bar")
@@ -58,15 +56,25 @@ class MultiAgentContainer(Container):
         # Sync reactive attributes with components
         self._sync_component_states()
 
+        # Force update status bar with current state
+        try:
+            status_bar = self.query_one("#status_bar", StatusBar)
+            if self.current_preset:
+                status_bar.set_preset(self.current_preset)
+            if self.active_agents:
+                status_bar.set_agents(self.active_agents)
+            if self.current_agent:
+                status_bar.set_current_agent(self.current_agent)
+        except NoMatches:
+            pass
+
     def watch_active_agents(self, agents: List[Dict[str, Any]]) -> None:
         """Update UI when active agents change."""
         try:
             if self.is_mounted:
-                agent_selector = self.query_one("#agent_selector", AgentSelector)
-                agent_selector.set_agents(agents)
-
                 # Update status bar
                 status_bar = self.query_one("#status_bar", StatusBar)
+                status_bar.set_agents(agents)
                 if agents:
                     status_bar.set_connection_status("connected")
                 else:
@@ -84,8 +92,8 @@ class MultiAgentContainer(Container):
         try:
             if self.is_mounted:
                 # Update all components
-                agent_selector = self.query_one("#agent_selector", AgentSelector)
-                agent_selector.set_current_agent(agent)
+                status_bar = self.query_one("#status_bar", StatusBar)
+                status_bar.set_current_agent(agent)
 
                 chat_display = self.query_one("#chat_display", ChatDisplay)
                 chat_display.switch_agent(agent)
@@ -136,6 +144,9 @@ class MultiAgentContainer(Container):
 
             # Load initial agent list
             await self._refresh_agent_list()
+
+            # Ensure status bar is updated after agent initialization
+            self.call_after_refresh(self._update_status_bar_after_init)
 
         except Exception as e:
             chat_display = self.query_one("#chat_display", ChatDisplay)
@@ -430,6 +441,25 @@ class MultiAgentContainer(Container):
     def refresh(self, *, repaint: bool = True, layout: bool = False, recompose: bool = False) -> None:
         """Refresh the widget."""
         super().refresh(repaint=repaint, layout=layout, recompose=recompose)
+
+    def _update_status_bar_after_init(self) -> None:
+        """Update status bar after initialization is complete."""
+        try:
+            status_bar = self.query_one("#status_bar", StatusBar)
+
+            # Force update all status bar fields
+            if self.current_preset:
+                status_bar.set_preset(self.current_preset)
+
+            if self.active_agents:
+                status_bar.set_agents(self.active_agents)
+
+            if self.current_agent:
+                status_bar.set_current_agent(self.current_agent)
+
+        except NoMatches:
+            # Try again after a short delay
+            self.set_timer(0.1, self._update_status_bar_after_init)
 
     async def refresh_state(self) -> None:
         """Refresh the container state."""
