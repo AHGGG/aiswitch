@@ -726,12 +726,17 @@ def test_export_import_roundtrip(temp_config_dir):
 
 def test_apply_basic_functionality(temp_config_dir):
     """Test basic apply command functionality"""
+    import platform
     runner = CliRunner()
     _add_default_preset(runner, name="apply_test")
 
     res = runner.invoke(cli, ["apply", "apply_test"])
     assert res.exit_code == 0
-    assert "✓ Switched to preset 'apply_test'" in res.output
+    # Windows and Unix have different messages
+    if platform.system() == "Windows":
+        assert "✓ Preset 'apply_test' configured (session only)" in res.output
+    else:
+        assert "✓ Switched to preset 'apply_test'" in res.output
     assert "API_KEY: sk-apply_test" in res.output or "API_KEY: sk-apply..." in res.output  # Masked key
     assert "API_BASE_URL: https://api.example.com" in res.output
     assert "API_MODEL: gpt-4o" in res.output
@@ -767,6 +772,7 @@ def test_apply_nonexistent_preset(temp_config_dir):
 
 def test_apply_with_shell_integration_check(temp_config_dir, monkeypatch):
     """Test apply command checks for shell integration"""
+    import platform
     runner = CliRunner()
     _add_default_preset(runner, name="integration_test")
 
@@ -775,13 +781,18 @@ def test_apply_with_shell_integration_check(temp_config_dir, monkeypatch):
 
     res = runner.invoke(cli, ["apply", "integration_test"])
     assert res.exit_code == 0
-    assert "✓ Switched to preset 'integration_test'" in res.output
+    # Windows and Unix have different messages
+    if platform.system() == "Windows":
+        assert "✓ Preset 'integration_test' configured (session only)" in res.output
+    else:
+        assert "✓ Switched to preset 'integration_test'" in res.output
 
 
 
 
 def test_apply_current_preset_switching(temp_config_dir):
     """Test apply command switches between different presets correctly"""
+    import platform
     runner = CliRunner()
     _add_default_preset(runner, name="preset1", model="gpt-4")
     _add_default_preset(runner, name="preset2", model="claude-3")
@@ -789,7 +800,11 @@ def test_apply_current_preset_switching(temp_config_dir):
     # Apply first preset
     res1 = runner.invoke(cli, ["apply", "preset1"])
     assert res1.exit_code == 0
-    assert "✓ Switched to preset 'preset1'" in res1.output
+    # Windows and Unix have different messages
+    if platform.system() == "Windows":
+        assert "✓ Preset 'preset1' configured (session only)" in res1.output
+    else:
+        assert "✓ Switched to preset 'preset1'" in res1.output
 
     # Verify current preset
     current_res = runner.invoke(cli, ["current"])
@@ -798,7 +813,11 @@ def test_apply_current_preset_switching(temp_config_dir):
     # Apply second preset
     res2 = runner.invoke(cli, ["apply", "preset2"])
     assert res2.exit_code == 0
-    assert "✓ Switched to preset 'preset2'" in res2.output
+    # Windows and Unix have different messages
+    if platform.system() == "Windows":
+        assert "✓ Preset 'preset2' configured (session only)" in res2.output
+    else:
+        assert "✓ Switched to preset 'preset2'" in res2.output
 
     # Verify current preset changed
     current_res2 = runner.invoke(cli, ["current"])

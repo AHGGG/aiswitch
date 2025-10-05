@@ -426,26 +426,31 @@ class TestEnvManagerExtended:
             # Should return first option (.bashrc) as default
             assert result == Path("/home/user/.bashrc")
 
-    @patch('aiswitch.env.platform.system')
-    def test_get_env_info_unix(self, mock_system):
+    def test_get_env_info_unix(self):
         """Test getting environment info on Unix."""
-        mock_system.return_value = "Linux"
+        # Mock the system attribute directly on the instance
+        original_system = self.env_manager.system
+        self.env_manager.system = "Linux"
 
-        with patch.dict(os.environ, {'SHELL': '/bin/bash'}):
-            with patch.object(self.env_manager, '_detect_shell_config') as mock_detect:
-                mock_detect.return_value = Path("/home/user/.bashrc")
+        try:
+            with patch.dict(os.environ, {'SHELL': '/bin/bash'}):
+                with patch.object(self.env_manager, '_detect_shell_config') as mock_detect:
+                    mock_detect.return_value = Path("/home/user/.bashrc")
 
-                # Set some environment variables
-                os.environ["API_KEY"] = "secret-key"
-                os.environ["API_BASE_URL"] = "https://api.example.com"
+                    # Set some environment variables
+                    os.environ["API_KEY"] = "secret-key"
+                    os.environ["API_BASE_URL"] = "https://api.example.com"
 
-                info = self.env_manager.get_env_info()
+                    info = self.env_manager.get_env_info()
 
-                assert info["system"] == "Linux"
-                assert info["shell"] == "/bin/bash"
-                assert info["config_detected"] == "/home/user/.bashrc"
-                assert info["current_API_KEY"] == "***"  # Should be masked
-                assert info["current_API_BASE_URL"] == "https://api.example.com"
+                    assert info["system"] == "Linux"
+                    assert info["shell"] == "/bin/bash"
+                    assert str(info["config_detected"]) == str(Path("/home/user/.bashrc"))
+                    assert info["current_API_KEY"] == "***"  # Should be masked
+                    assert info["current_API_BASE_URL"] == "https://api.example.com"
+        finally:
+            # Restore original system
+            self.env_manager.system = original_system
 
     def test_get_env_info_windows(self):
         """Test getting environment info on Windows."""

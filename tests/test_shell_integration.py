@@ -73,6 +73,8 @@ class TestShellIntegration:
         mock_home.return_value = Path('/home/user')
         mock_shell_type.return_value = 'bash'
         mock_system.return_value = 'Linux'
+        # Mock the instance's system attribute
+        self.integration.system = 'Linux'
 
         result = self.integration.get_shell_config_path()
         assert result == Path('/home/user/.bashrc')

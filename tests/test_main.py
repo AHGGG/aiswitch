@@ -68,7 +68,7 @@ def test_main_module_structure():
 
     assert main_file.exists()
 
-    content = main_file.read_text()
+    content = main_file.read_text(encoding='utf-8')
     assert "from .cli import main" in content
     assert 'if __name__ == "__main__":' in content
     assert "main()" in content

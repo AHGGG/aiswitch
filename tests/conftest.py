@@ -18,6 +18,8 @@ def restore_environ():
 @pytest.fixture()
 def temp_config_dir(tmp_path, monkeypatch):
     """Put AISwitch config and home directories in a temp location."""
+    import platform
+
     home_dir = tmp_path / "home"
     config_root = tmp_path / "xdg"
     home_dir.mkdir(parents=True, exist_ok=True)
@@ -25,5 +27,10 @@ def temp_config_dir(tmp_path, monkeypatch):
 
     monkeypatch.setenv("HOME", str(home_dir))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config_root))
+
+    # For Windows, also patch Path.home() to return our temp home
+    if platform.system() == "Windows":
+        from pathlib import Path
+        monkeypatch.setattr(Path, "home", lambda: home_dir)
 
     return config_root
