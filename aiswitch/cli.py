@@ -7,10 +7,22 @@ import os
 import subprocess
 import json
 import asyncio
+import platform
 from datetime import datetime
 
 from .preset import PresetManager
 from .config import PresetConfig
+
+
+# Windows GBK终端兼容性：安全输出Unicode字符
+def safe_echo(message, **kwargs):
+    """在Windows GBK终端下安全输出Unicode字符"""
+    try:
+        click.echo(message, **kwargs)
+    except UnicodeEncodeError:
+        # 替换Unicode符号为ASCII
+        safe_message = message.replace('✓', '[OK]').replace('✗', '[X]').replace('❌', '[ERROR]').replace('⚠️', '[WARN]').replace('→', '->').replace('🤖', '[BOT]').replace('🟢', '[*]').replace('🔴', '[ ]')
+        click.echo(safe_message, **kwargs)
 
 
 @click.group()
@@ -71,19 +83,19 @@ def add(name: str, env_pairs: tuple, description: str, tags: Optional[str]):
             tags=tag_list
         )
 
-        click.echo(f"✓ Preset '{name}' added successfully")
+        safe_echo(f"✓ Preset '{name}' added successfully")
         if description:
-            click.echo(f"  Description: {description}")
+            safe_echo(f"  Description: {description}")
         if tag_list:
-            click.echo(f"  Tags: {', '.join(tag_list)}")
+            safe_echo(f"  Tags: {', '.join(tag_list)}")
 
-        click.echo(f"  Environment variables:")
+        safe_echo(f"  Environment variables:")
         for var_name, var_value in variables.items():
             if 'KEY' in var_name.upper():
                 display_value = f"{var_value[:8]}..." if len(var_value) > 8 else "***"
             else:
                 display_value = var_value
-            click.echo(f"    {var_name}: {display_value}")
+            safe_echo(f"    {var_name}: {display_value}")
 
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
@@ -107,7 +119,7 @@ def remove(name: str, force: bool):
             sys.exit(1)
 
         if preset_manager.remove_preset(name):
-            click.echo(f"✓ Preset '{name}' removed successfully")
+            safe_echo(f"✓ Preset '{name}' removed successfully")
         else:
             click.echo(f"Error: Preset '{name}' not found", err=True)
             sys.exit(1)
@@ -130,14 +142,23 @@ def _apply_impl(name: str, export: bool):
             click.echo(f'export {var}="{value}"')
         return
     else:
-        click.echo(f"✓ Switched to preset '{name}'")
+        # Windows环境特殊处理
+        if platform.system() == 'Windows':
+            safe_echo(f"✓ Preset '{name}' configured (session only)")
+            safe_echo(f"\n  Note: On Windows, environment variables are only applied in subprocess mode.")
+            safe_echo(f"  To run commands with this preset, use:")
+            safe_echo(f"    aiswitch apply {name} -- <your-command>")
+            safe_echo(f"\n  Example: aiswitch apply {name} -- python script.py")
+            safe_echo(f"\n  Variables in preset '{name}':")
+        else:
+            safe_echo(f"✓ Switched to preset '{name}'")
 
         for var, value in applied_vars.items():
             if 'KEY' in var:
                 display_value = f"{value[:8]}..." if len(value) > 8 else "***"
             else:
                 display_value = value
-            click.echo(f"  {var}: {display_value}")
+            safe_echo(f"  {var}: {display_value}")
 
 
 @cli.command()
@@ -229,7 +250,8 @@ def apply(name: str, export: bool, quiet: bool, agents: Optional[str], agent_pre
 
         # 交互模式：apply <preset>
         # 首次体验优化：若未安装集成且为交互式会话，询问是否安装
-        if not export:
+        # 注意：Windows环境下shell集成不可用，跳过检查
+        if not export and platform.system() != 'Windows':
             try:
                 from .shell_integration import ShellIntegration
                 integration = ShellIntegration()
@@ -506,6 +528,14 @@ def info():
 def install(force: bool):
     """安装 shell 集成，使 apply 自动在当前终端应用环境变量"""
     try:
+        # Windows环境不支持shell集成
+        if platform.system() == 'Windows':
+            click.echo("❌ Shell integration is not supported on Windows")
+            click.echo("\n  On Windows, use the one-time execution mode:")
+            click.echo("    aiswitch apply <preset> -- <command>")
+            click.echo("\n  Example: aiswitch apply mypreset -- python script.py")
+            sys.exit(1)
+
         from .shell_integration import ShellIntegration
 
         integration = ShellIntegration()
@@ -1450,12 +1480,15 @@ def handle_apply_one_time_mode():
 
         # 执行命令
         try:
-            # 支持shell特性（管道、重定向等）的智能检测
-            if any(op in cmd_str for op in ['|', '>', '<', '&&', '||', ';', '`', '$(']):
-                # 包含shell操作符，使用shell执行
+            # 在Windows上，需要使用shell=True来正确解析.cmd/.bat文件
+            # 在Unix上，为了安全性，只在有shell操作符时才使用shell=True
+            use_shell = platform.system() == 'Windows' or any(op in cmd_str for op in ['|', '>', '<', '&&', '||', ';', '`', '$('])
+
+            if use_shell:
+                # 使用shell执行（Windows必需，或包含shell操作符）
                 result = subprocess.run(cmd_str, shell=True, env=env, check=False)
             else:
-                # 简单命令，直接执行（更安全）
+                # 简单命令，直接执行（更安全，仅Unix）
                 result = subprocess.run(cmd_args, env=env, check=False)
 
             sys.exit(result.returncode)

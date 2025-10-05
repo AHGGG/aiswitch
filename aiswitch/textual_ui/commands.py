@@ -203,19 +203,9 @@ def get_preset_options() -> list[tuple[str, str]]:
         from aiswitch.preset import PresetManager
         preset_manager = PresetManager()
         presets = preset_manager.list_presets()
-        # Debug: Write to log file
-        with open("/tmp/preset_debug.log", "w") as f:
-            f.write(f"Found {len(presets)} presets:\n")
-            for name, _ in presets:
-                f.write(f"- {name}\n")
         # Return list of (display_name, value) tuples
         return [(name, name) for name, _ in presets]
     except Exception as e:
-        # Debug: log error
-        with open("/tmp/preset_debug.log", "w") as f:
-            f.write(f"Failed to get presets: {e}\n")
-            import traceback
-            f.write(traceback.format_exc())
         # Fallback
         return [
             ("ds", "ds"),
