@@ -1,16 +1,14 @@
 """Textual interactive experiences for AISwitch agents.
 
-This module provides both legacy single-agent interfaces and the new
-multi-agent interface for backward compatibility.
+This module provides the new multi-agent interface and a legacy Claude SDK interface
+for backward compatibility.
 """
 
 from __future__ import annotations
 
-import asyncio
 import os
-from asyncio.subprocess import Process
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from rich.text import Text
 from textual import on
@@ -159,92 +157,6 @@ class BaseChatApp(App[None]):
         self.exit()
 
 
-class SubprocessAgentApp(BaseChatApp):
-    """Fallback implementation that proxies to a shell command."""
-
-    def __init__(self, agent_command: List[str], env_vars: Dict[str, str]):
-        super().__init__()
-        self.agent_command = agent_command
-        self.env_vars = env_vars
-        self.agent_process: Optional[Process] = None
-        self._reader_task: Optional[asyncio.Task[None]] = None
-        self._bootstrap_task: Optional[asyncio.Task[None]] = None
-        self._bootstrap_error: Optional[Exception] = None
-
-    def on_mount(self) -> None:  # pragma: no cover - UI binding
-        super().on_mount()
-        self._bootstrap_task = asyncio.create_task(self._start_agent_process())
-
-    def action_quit(self) -> None:  # pragma: no cover - UI binding
-        if self.agent_process and self.agent_process.returncode is None:
-            self.agent_process.terminate()
-        if self._reader_task and not self._reader_task.done():
-            self._reader_task.cancel()
-        if self._bootstrap_task and not self._bootstrap_task.done():
-            self._bootstrap_task.cancel()
-        super().action_quit()
-
-    async def _start_agent_process(self) -> None:
-        try:
-            self.log_info(f"🚀 启动命令: {' '.join(self.agent_command)}", style="blue")
-            self.agent_process = await asyncio.create_subprocess_exec(
-                *self.agent_command,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, **self.env_vars},
-            )
-            self.log_info(
-                f"✅ Agent进程已启动 (PID: {self.agent_process.pid})", style="green"
-            )
-            self._reader_task = asyncio.create_task(self._consume_process_output())
-        except Exception as exc:  # pragma: no cover - defensive logging
-            self._bootstrap_error = exc
-            self.log_error(f"❌ 启动Agent失败: {exc}")
-
-    async def _consume_process_output(self) -> None:
-        assert self.agent_process is not None
-        stdout = self.agent_process.stdout
-        stderr = self.agent_process.stderr
-        assert stdout and stderr
-
-        async def _pump(stream: asyncio.StreamReader, is_error: bool) -> None:
-            while True:
-                line = await stream.readline()
-                if not line:
-                    break
-                text = line.decode("utf-8", errors="replace").strip()
-                if not text:
-                    continue
-                if is_error:
-                    self.log_error(f"⚠️ {text}")
-                else:
-                    self.log_assistant(text)
-
-        await asyncio.gather(_pump(stdout, False), _pump(stderr, True))
-
-    async def handle_user_message(self, message: str) -> None:
-        if self._bootstrap_task and not self._bootstrap_task.done():
-            try:
-                await self._bootstrap_task
-            except Exception as exc:
-                self.log_error(f"❌ Agent启动失败: {exc}")
-                return
-        if self._bootstrap_error:
-            self.log_error(f"❌ Agent启动失败: {self._bootstrap_error}")
-            return
-
-        if not self.agent_process or not self.agent_process.stdin:
-            self.log_error("❌ Agent进程未运行")
-            return
-
-        try:
-            self.agent_process.stdin.write(f"{message}\n".encode("utf-8"))
-            await self.agent_process.stdin.drain()
-        except Exception as exc:  # pragma: no cover - defensive logging
-            self.log_error(f"❌ 发送消息失败: {exc}")
-
-
 class ClaudeSDKApp(BaseChatApp):
     """Interactive session powered by the Claude Agent SDK."""
 
@@ -379,7 +291,7 @@ def run_textual_interactive(
 
     Args:
         agent_name: Name of the agent to run
-        agent_command: Command to run the agent (for legacy mode)
+        agent_command: Command to run the agent (for legacy mode, not used)
         env_vars: Environment variables
         multi_agent: Whether to use the new multi-agent interface
         preset: Environment preset to use
@@ -390,18 +302,14 @@ def run_textual_interactive(
         from .textual_ui.app import run_aiswitch_app
         return run_aiswitch_app(preset=preset)
 
-    # Legacy single-agent interface for backward compatibility
+    # Legacy single-agent interface using Claude SDK
     if agent_name.lower() == "claude" and claude_agent_sdk_available and _has_claude_credentials(env_vars):
         app: BaseChatApp = ClaudeSDKApp(env_vars)
+        app.run()
     else:
-        if agent_name.lower() == "claude":
-            if not claude_agent_sdk_available:
-                print("[AISwitch] 未安装 claude-agent-sdk 包，回退到 CLI 模式。")
-            elif not _has_claude_credentials(env_vars):
-                print("[AISwitch] 未检测到 Claude API 凭证，回退到 CLI 模式。")
-        app = SubprocessAgentApp(agent_command, env_vars)
-
-    app.run()
+        # If Claude SDK is not available, use multi-agent interface instead
+        from .textual_ui.app import run_aiswitch_app
+        run_aiswitch_app(preset=preset)
 
 
 def run_multi_agent_interface(preset: str = "default") -> None:

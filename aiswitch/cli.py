@@ -733,17 +733,6 @@ def import_cmd(input_file: str, force: bool, dry_run: bool):
         sys.exit(1)
 
 
-# 全局管理器实例
-_agent_manager: Optional['CLIAgentManager'] = None
-
-async def get_agent_manager():
-    """获取代理管理器实例"""
-    global _agent_manager
-    if _agent_manager is None:
-        from .cli_wrapper.manager import CLIAgentManager
-        _agent_manager = CLIAgentManager()
-    return _agent_manager
-
 def _execute_ai_agent_interactive(preset_name: str):
     """交互式执行AI CLI agent，使用多代理界面"""
     try:
@@ -757,89 +746,6 @@ def _execute_ai_agent_interactive(preset_name: str):
     except Exception as e:
         click.echo(f"❌ Error starting interactive session: {e}", err=True)
         sys.exit(1)
-
-# 新增agents命令组
-@cli.group()
-def agents():
-    """管理CLI代理"""
-    pass
-
-@agents.command('list')
-def agents_list():
-    """列出所有代理和会话"""
-    asyncio.run(_agents_list())
-
-async def _agents_list():
-    """列出代理实现"""
-    manager = await get_agent_manager()
-    agents_info = await manager.list_agents()
-
-    if not agents_info:
-        click.echo("No active agents found.")
-        return
-
-    click.echo("Active Agents:")
-    click.echo("-" * 50)
-
-    for agent_info in agents_info:
-        click.echo(f"\n🤖 {agent_info['agent_id']} ({agent_info['adapter']})")
-        if agent_info['sessions']:
-            click.echo("   Sessions:")
-            for session in agent_info['sessions']:
-                status_icon = "🟢" if session['status']['status'] == 'running' else "🔴"
-                click.echo(f"   {status_icon} {session['session_id'][:8]}... ({session['status']['status']})")
-        else:
-            click.echo("   No active sessions")
-
-@agents.command('status')
-@click.argument('agent_id')
-def agents_status(agent_id):
-    """查看指定代理的详细状态"""
-    asyncio.run(_agents_status(agent_id))
-
-async def _agents_status(agent_id: str):
-    """查看代理状态实现"""
-    manager = await get_agent_manager()
-
-    if agent_id not in manager.agents:
-        click.echo(f"Agent '{agent_id}' not found.")
-        return
-
-    agent = manager.agents[agent_id]
-    sessions = await agent.list_sessions()
-
-    click.echo(f"Agent: {agent_id}")
-    click.echo(f"Adapter: {agent.adapter.name}")
-    click.echo(f"Capabilities: {agent.capabilities}")
-    click.echo(f"Sessions: {len(sessions)}")
-
-    if sessions:
-        click.echo("\nSession Details:")
-        for session in sessions:
-            click.echo(f"  ID: {session['session_id']}")
-            click.echo(f"  Status: {session['status']['status']}")
-            click.echo(f"  Created: {session['created_at']}")
-            click.echo(f"  Commands: {session['status']['command_count']}")
-            click.echo()
-
-@agents.command('terminate')
-@click.argument('agent_id')
-@click.confirmation_option(prompt='Are you sure you want to terminate this agent?')
-def agents_terminate(agent_id):
-    """终止指定代理的所有会话"""
-    asyncio.run(_agents_terminate(agent_id))
-
-async def _agents_terminate(agent_id: str):
-    """终止代理实现"""
-    manager = await get_agent_manager()
-
-    try:
-        await manager.terminate_agent(agent_id)
-        click.echo(f"✓ Agent '{agent_id}' terminated successfully.")
-    except ValueError as e:
-        click.echo(f"✗ Error: {e}")
-    except Exception as e:
-        click.echo(f"✗ Failed to terminate agent: {e}")
 
 def handle_apply_one_time_mode():
     """处理一次性运行模式，绕过Click的参数解析问题"""
