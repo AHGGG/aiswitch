@@ -69,18 +69,18 @@ def test_remove_requires_force_for_current(temp_config_dir):
 
     result = runner.invoke(cli, ["remove", "keep"])
     assert result.exit_code != 0
-    assert "Cannot remove current preset" in result.output
+    assert "Skipped current preset" in result.output
 
     forced = runner.invoke(cli, ["remove", "keep", "--force"])
     assert forced.exit_code == 0
-    assert "removed successfully" in forced.output
+    assert "Removed" in forced.output
 
 
 def test_remove_reports_missing_preset(temp_config_dir):
     runner = CliRunner()
     result = runner.invoke(cli, ["remove", "missing"])
     assert result.exit_code != 0
-    assert "not found" in result.output
+    assert "Not found" in result.output
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Unix-like shells expected")
@@ -948,7 +948,7 @@ def test_remove_with_force_current_preset(temp_config_dir):
     # Remove with force
     res = runner.invoke(cli, ["remove", "force_remove_test", "--force"])
     assert res.exit_code == 0
-    assert "removed" in res.output
+    assert "Removed" in res.output
 
     # Verify it's removed from list
     list_res = runner.invoke(cli, ["list"])
@@ -966,7 +966,7 @@ def test_remove_without_force_current_preset(temp_config_dir):
     # Try to remove without force
     res = runner.invoke(cli, ["remove", "current_remove_test"])
     assert res.exit_code != 0
-    assert "Cannot remove current preset" in res.output and "Use --force" in res.output
+    assert "Skipped current preset" in res.output and "use --force" in res.output
 
 
 def test_add_with_special_characters_in_values(temp_config_dir):
@@ -1008,3 +1008,105 @@ def test_subcommand_help_options(temp_config_dir):
         res = runner.invoke(cli, [cmd, "--help"])
         assert res.exit_code == 0, f"Help for {cmd} command failed"
         assert "Usage:" in res.output, f"Help for {cmd} command doesn't contain usage"
+
+
+def test_remove_multiple_presets(temp_config_dir):
+    """Test removing multiple presets at once"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="preset1")
+    _add_default_preset(runner, name="preset2")
+    _add_default_preset(runner, name="preset3")
+
+    # Remove multiple presets
+    res = runner.invoke(cli, ["remove", "preset1", "preset2", "preset3"])
+    assert res.exit_code == 0
+    assert "Removed 3 preset(s)" in res.output
+    assert "preset1" in res.output
+    assert "preset2" in res.output
+    assert "preset3" in res.output
+
+    # Verify all are removed
+    list_res = runner.invoke(cli, ["list"])
+    assert "preset1" not in list_res.output
+    assert "preset2" not in list_res.output
+    assert "preset3" not in list_res.output
+
+
+def test_remove_multiple_with_nonexistent(temp_config_dir):
+    """Test removing multiple presets when some don't exist"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="exists1")
+    _add_default_preset(runner, name="exists2")
+
+    # Remove mix of existing and non-existing presets
+    res = runner.invoke(cli, ["remove", "exists1", "nonexistent", "exists2"])
+    assert res.exit_code == 0  # Should succeed because some were removed
+    assert "Removed 2 preset(s)" in res.output
+    assert "exists1" in res.output and "exists2" in res.output
+    assert "Not found: nonexistent" in res.output
+
+    # Verify existing ones are removed
+    list_res = runner.invoke(cli, ["list"])
+    assert "exists1" not in list_res.output
+    assert "exists2" not in list_res.output
+
+
+def test_remove_multiple_with_current_preset(temp_config_dir):
+    """Test removing multiple presets including current without --force"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="preset1")
+    _add_default_preset(runner, name="current")
+    _add_default_preset(runner, name="preset3")
+
+    # Apply current preset
+    runner.invoke(cli, ["apply", "current"])
+
+    # Try to remove multiple including current without --force
+    res = runner.invoke(cli, ["remove", "preset1", "current", "preset3"])
+    assert res.exit_code == 0  # Should succeed for non-current presets
+    assert "Removed 2 preset(s)" in res.output
+    assert "preset1" in res.output and "preset3" in res.output
+    assert "Skipped current preset(s): current" in res.output
+
+    # Verify non-current are removed, current remains
+    list_res = runner.invoke(cli, ["list"])
+    assert "preset1" not in list_res.output
+    assert "preset3" not in list_res.output
+    assert "current" in list_res.output
+
+
+def test_remove_multiple_with_current_and_force(temp_config_dir):
+    """Test removing multiple presets including current with --force"""
+    runner = CliRunner()
+    _add_default_preset(runner, name="preset1")
+    _add_default_preset(runner, name="current")
+    _add_default_preset(runner, name="preset3")
+
+    # Apply current preset
+    runner.invoke(cli, ["apply", "current"])
+
+    # Remove multiple including current with --force
+    res = runner.invoke(cli, ["remove", "preset1", "current", "preset3", "--force"])
+    assert res.exit_code == 0
+    assert "Removed 3 preset(s)" in res.output
+    assert "preset1" in res.output
+    assert "current" in res.output
+    assert "preset3" in res.output
+    assert "Skipped" not in res.output
+
+    # Verify all are removed
+    list_res = runner.invoke(cli, ["list"])
+    assert "preset1" not in list_res.output
+    assert "current" not in list_res.output
+    assert "preset3" not in list_res.output
+
+
+def test_remove_all_nonexistent_presets(temp_config_dir):
+    """Test removing only non-existent presets should fail"""
+    runner = CliRunner()
+
+    # Try to remove only non-existent presets
+    res = runner.invoke(cli, ["remove", "nonexistent1", "nonexistent2"])
+    assert res.exit_code != 0  # Should fail because nothing was removed
+    assert "Not found: nonexistent1, nonexistent2" in res.output
+    assert "Removed" not in res.output

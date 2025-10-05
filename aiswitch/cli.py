@@ -106,22 +106,49 @@ def add(name: str, env_pairs: tuple, description: str, tags: Optional[str]):
 
 
 @cli.command()
-@click.argument('name')
+@click.argument('names', nargs=-1, required=True)
 @click.option('--force', is_flag=True, help='强制删除，即使是当前使用的预设')
-def remove(name: str, force: bool):
-    """删除指定预设"""
+def remove(names: tuple, force: bool):
+    """删除一个或多个预设
+
+    使用方式:
+      aiswitch remove <preset1>                    # 删除单个预设
+      aiswitch remove <preset1> <preset2> ...      # 删除多个预设
+      aiswitch remove <preset1> <preset2> --force  # 强制删除（包括当前预设）
+    """
     try:
         preset_manager = PresetManager()
-
         current = preset_manager.get_current_preset()
-        if current and current.name == name and not force:
-            click.echo(f"Error: Cannot remove current preset '{name}'. Use --force to override.", err=True)
-            sys.exit(1)
+        current_name = current.name if current else None
 
-        if preset_manager.remove_preset(name):
-            safe_echo(f"✓ Preset '{name}' removed successfully")
-        else:
-            click.echo(f"Error: Preset '{name}' not found", err=True)
+        removed = []
+        skipped_current = []
+        not_found = []
+
+        for name in names:
+            # 检查是否是当前预设且没有 --force
+            if current_name and name == current_name and not force:
+                skipped_current.append(name)
+                continue
+
+            # 尝试删除
+            if preset_manager.remove_preset(name):
+                removed.append(name)
+            else:
+                not_found.append(name)
+
+        # 汇总报告
+        if removed:
+            safe_echo(f"✓ Removed {len(removed)} preset(s): {', '.join(removed)}")
+
+        if skipped_current:
+            click.echo(f"⚠️  Skipped current preset(s): {', '.join(skipped_current)} (use --force to override)", err=True)
+
+        if not_found:
+            click.echo(f"⚠️  Not found: {', '.join(not_found)}", err=True)
+
+        # 如果什么都没删除成功，退出码为 1
+        if not removed:
             sys.exit(1)
 
     except Exception as e:
