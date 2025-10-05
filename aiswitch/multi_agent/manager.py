@@ -209,8 +209,13 @@ class MultiAgentManager:
             return {"error": "Agent not found"}
 
         agent_info = self.agents[agent_id]
+
+        # Extract name from config if available
+        name = agent_info["config"].get("name", agent_id)
+
         return {
             "agent_id": agent_id,
+            "name": name,  # Add name to top level for UI display
             "adapter_type": agent_info["adapter_type"],
             "status": agent_info["status"].value,
             "task_count": agent_info["task_count"],

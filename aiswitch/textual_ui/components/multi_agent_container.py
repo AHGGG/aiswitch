@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from typing import Dict, List, Any, Optional
 
 from textual import on
@@ -261,6 +262,7 @@ class MultiAgentContainer(Container):
         status_bar.increment_message_count()
 
         # Execute command
+        self.log.info(f"before execute_command, event.message: {event.message}")
         await self.execute_command(event.message)
 
     @on(AgentSelected)
@@ -304,10 +306,6 @@ class MultiAgentContainer(Container):
         status_bar = self.query_one("#status_bar", StatusBar)
 
         try:
-            # DEBUG
-            import sys
-            print(f"[DEBUG] AgentAddRequested: {event.agent_name}, {event.adapter_type}, preset={event.preset}", file=sys.stderr)
-
             # Create a config for the new agent
             config = {"name": event.agent_name}
 
@@ -320,9 +318,6 @@ class MultiAgentContainer(Container):
 
             # Register the new agent (this will refresh agent list internally)
             success = await self.register_agent(event.agent_name, event.adapter_type, config)
-
-            print(f"[DEBUG] register_agent returned: {success}", file=sys.stderr)
-            print(f"[DEBUG] active_agents after register: {self.active_agents}", file=sys.stderr)
 
             if success:
                 chat_display.add_system_message(f"Added agent '{event.agent_name}' ({event.adapter_type})", "success")

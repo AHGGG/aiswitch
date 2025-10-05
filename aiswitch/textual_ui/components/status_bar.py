@@ -306,12 +306,7 @@ class StatusBar(Container):
             agents: List of available agents with their metadata
             current_agent: ID of the current agent to display
         """
-        # DEBUG
-        import sys
-        print(f"[DEBUG] update_agent_state called with {len(agents)} agents, current={current_agent}", file=sys.stderr)
-        for a in agents:
-            print(f"[DEBUG]   - {a.get('agent_id', 'NO_ID')}: {a}", file=sys.stderr)
-
+        self.log.info(f"[update_agent_state] current_agent: {current_agent}")
         # First update the agents list (data layer)
         self.available_agents = agents
 
@@ -319,7 +314,6 @@ class StatusBar(Container):
         # This bypasses timing issues with multiple reactive assignments
         try:
             agent_display = self.query_one("#agent_display", Static)
-            print(f"[DEBUG] Found agent_display widget", file=sys.stderr)
 
             if current_agent:
                 # Find agent info from the just-updated agents list
@@ -328,8 +322,6 @@ class StatusBar(Container):
                     if a.get("agent_id", a.get("id", "")) == current_agent:
                         agent_info = a
                         break
-
-                print(f"[DEBUG] agent_info found: {agent_info}", file=sys.stderr)
 
                 if agent_info:
                     agent_name = agent_info.get("name", current_agent)
@@ -341,7 +333,6 @@ class StatusBar(Container):
                 else:
                     display_text = f"Agent: {current_agent}"
 
-                print(f"[DEBUG] Updating agent_display to: {display_text}", file=sys.stderr)
                 agent_display.update(display_text)
 
                 # Update CSS class for agent-specific styling
@@ -355,11 +346,10 @@ class StatusBar(Container):
             # Finally update the reactive property to keep state consistent
             # This won't trigger watch since UI is already updated
             self.current_agent = current_agent
-            print(f"[DEBUG] update_agent_state completed successfully", file=sys.stderr)
 
         except Exception as e:
             # If UI update fails, still update reactive property
-            print(f"[DEBUG] ERROR in update_agent_state: {e}", file=sys.stderr)
+            import sys
             import traceback
             traceback.print_exc(file=sys.stderr)
             self.current_agent = current_agent

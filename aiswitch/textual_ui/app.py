@@ -12,9 +12,9 @@ from textual.binding import Binding
 from textual.reactive import reactive
 from textual.widgets import Header, Footer
 
-from .components.multi_agent_container import MultiAgentContainer
-from .commands import AddAgentProvider, AgentManagementProvider, PresetManagementProvider
-from .events import (
+from aiswitch.textual_ui.components.multi_agent_container import MultiAgentContainer
+from aiswitch.textual_ui.commands import AddAgentProvider, AgentManagementProvider, PresetManagementProvider
+from aiswitch.textual_ui.events import (
     UserMessageSubmitted,
     AgentSelected,
     AgentResponseReceived,
@@ -66,7 +66,7 @@ class AISwitch(App):
     execution_mode = reactive("sequential", layout=False)
     app_status = reactive("initializing", layout=False)
 
-    def __init__(self, preset: str = "default", **kwargs):
+    def __init__(self, preset: str = "ds", **kwargs):
         super().__init__(**kwargs)
         self.current_preset = preset
         self.session_data = {}
@@ -90,6 +90,8 @@ class AISwitch(App):
             # Update title with preset info
             if self.current_preset:
                 self.sub_title = f"Using preset: {self.current_preset}"
+
+            self.log.info(f"Loading default preset!!!! name: {self.current_preset}")
 
             # Container is already initialized with preset in compose()
             # Just update the title
@@ -412,3 +414,8 @@ def run_aiswitch_app(preset: str = "default", **kwargs) -> None:
         print(f"Error in run_aiswitch_app: {e}")
         traceback.print_exc()
         raise
+
+
+if __name__ == "__main__":
+    app = AISwitch()
+    app.run()

@@ -736,8 +736,8 @@ def import_cmd(input_file: str, force: bool, dry_run: bool):
 def _execute_ai_agent_interactive(preset_name: str):
     """交互式执行AI CLI agent，使用多代理界面"""
     try:
-        from .textual_interactive import run_multi_agent_interface
-        run_multi_agent_interface(preset=preset_name)
+        from .textual_ui.app import run_aiswitch_app
+        run_aiswitch_app(preset=preset_name)
     except ImportError:
         click.echo("❌ Error: Multi-agent interface not available. Install with: pip install textual", err=True)
         sys.exit(1)

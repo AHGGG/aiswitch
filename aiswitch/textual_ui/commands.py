@@ -197,6 +197,7 @@ def show_add_agent_dialog(app: Any) -> None:
     # Show the modal dialog with preset options
     app.push_screen(AddAgentScreen(preset_options=preset_options), handle_result)
 
+
 def get_preset_options() -> list[tuple[str, str]]:
     """Get available preset options."""
     try:
@@ -301,6 +302,7 @@ def switch_agent(app: Any, agent_id: str) -> None:
     """Switch to a specific agent."""
     from .events import AgentSelected
     app.post_message(AgentSelected(agent_id))
+
 
 async def remove_agent(app: Any, agent_id: str) -> None:
     """Remove a specific agent."""
