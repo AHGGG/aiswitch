@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from time import sleep
 from typing import Dict, List, Any, Optional
 
 from textual.app import App, ComposeResult
@@ -12,6 +13,7 @@ from textual.reactive import reactive
 from textual.widgets import Header, Footer
 
 from .components.multi_agent_container import MultiAgentContainer
+from .commands import AddAgentProvider, AgentManagementProvider, PresetManagementProvider
 from .events import (
     UserMessageSubmitted,
     AgentSelected,
@@ -24,7 +26,8 @@ from .events import (
     SessionLoadRequested,
     CommandExecutionStarted,
     CommandExecutionCompleted,
-    AgentError
+    AgentError,
+    AgentAddRequested
 )
 
 
@@ -36,6 +39,12 @@ class AISwitch(App):
     TITLE = "AISwitch - Multi-Agent Terminal Interface"
     SUB_TITLE = "Seamlessly switch between AI agents"
 
+    COMMANDS = {
+        AddAgentProvider,
+        AgentManagementProvider,
+        PresetManagementProvider,
+    }
+
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit", priority=True),
         Binding("ctrl+l", "clear_chat", "Clear Chat"),
@@ -43,8 +52,9 @@ class AISwitch(App):
         Binding("ctrl+o", "load_session", "Load Session"),
         Binding("f1", "show_help", "Help"),
         Binding("f2", "show_settings", "Settings"),
-        Binding("ctrl+n", "next_agent", "Next Agent"),
-        Binding("ctrl+p", "prev_agent", "Previous Agent"),
+        # Agent switching keys with priority=True to work even when Input is focused
+        Binding("ctrl+right", "next_agent", "Next Agent", priority=True),
+        Binding("ctrl+left", "prev_agent", "Previous Agent", priority=True),
         Binding("ctrl+1", "set_sequential", "Sequential Mode"),
         Binding("ctrl+2", "set_parallel", "Parallel Mode"),
         Binding("ctrl+r", "refresh_agents", "Refresh Agents"),
@@ -154,6 +164,12 @@ class AISwitch(App):
     async def on_agent_error(self, event: AgentError) -> None:
         """Handle agent errors."""
         # Log error or show notification
+        pass
+
+    async def on_agent_add_requested(self, event: AgentAddRequested) -> None:
+        """Handle agent add requests."""
+        # The MultiAgentContainer handles the actual logic
+        # Here we can update app-level state if needed
         pass
 
     # Action handlers for key bindings
@@ -320,13 +336,14 @@ class AISwitch(App):
 
 Key Bindings:
   Ctrl+Q        - Quit application
+  Ctrl+P        - Open command palette (agent management)
   Ctrl+L        - Clear chat history
   Ctrl+S        - Save current session
   Ctrl+O        - Load saved session
   F1            - Show this help
   F2            - Show settings
-  Tab           - Switch to next agent
-  Shift+Tab     - Switch to previous agent
+  Ctrl+N        - Switch to next agent
+  Ctrl+Shift+P  - Switch to previous agent
   Ctrl+1        - Set sequential execution mode
   Ctrl+2        - Set parallel execution mode
   Ctrl+R        - Refresh agent list
@@ -339,6 +356,12 @@ Commands:
   /save         - Save current session
   /load <name>  - Load saved session
   /help         - Show command help
+
+Command Palette (Ctrl+P):
+  Add Agent     - Add new agents with preset selection
+  Switch Agent  - Switch between available agents
+  Remove Agent  - Remove agents
+  Switch Preset - Change environment presets
 
 Execution Modes:
   Sequential    - Execute commands one agent at a time

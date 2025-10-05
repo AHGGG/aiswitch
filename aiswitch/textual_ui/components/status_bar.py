@@ -252,41 +252,114 @@ class StatusBar(Container):
 
     def watch_current_agent(self, agent: str) -> None:
         """Update current agent display."""
-        agent_display = self.query_one("#agent_display", Static)
+        try:
+            agent_display = self.query_one("#agent_display", Static)
 
-        if agent:
-            # Find agent info for display
-            agent_info = None
-            for a in self.available_agents:
-                if a.get("agent_id", a.get("id", "")) == agent:
-                    agent_info = a
-                    break
-
-            if agent_info:
-                agent_name = agent_info.get("name", agent)
-                adapter_type = agent_info.get("adapter_type", "")
-                if adapter_type:
-                    display_text = f"Agent: {agent_name} ({adapter_type})"
-                else:
-                    display_text = f"Agent: {agent_name}"
-            else:
-                display_text = f"Agent: {agent}"
-
-            agent_display.update(display_text)
-
-            # Update CSS class for agent-specific styling
-            agent_display.remove_class("claude", "openai", "generic")
             if agent:
+                # Find agent info for display from available_agents
+                agent_info = None
+                for a in self.available_agents:
+                    if a.get("agent_id", a.get("id", "")) == agent:
+                        agent_info = a
+                        break
+
+                if agent_info:
+                    agent_name = agent_info.get("name", agent)
+                    adapter_type = agent_info.get("adapter_type", "")
+                    if adapter_type:
+                        display_text = f"Agent: {agent_name} ({adapter_type})"
+                    else:
+                        display_text = f"Agent: {agent_name}"
+                else:
+                    # Fallback: display agent ID if info not found
+                    display_text = f"Agent: {agent}"
+
+                agent_display.update(display_text)
+
+                # Update CSS class for agent-specific styling
+                agent_display.remove_class("claude", "openai", "generic")
                 css_class = agent.lower()
                 if css_class in ["claude", "openai", "generic"]:
                     agent_display.add_class(css_class)
-        else:
-            agent_display.update("Agent: none")
+            else:
+                agent_display.update("Agent: none")
+        except Exception:
+            # Ignore errors if widget not mounted yet
+            pass
 
     def set_agents(self, agents: List[Dict[str, Any]]) -> None:
         """Set available agents list."""
         self.available_agents = agents
 
     def set_current_agent(self, agent: str) -> None:
-        """Set current agent."""
+        """Set current agent and trigger reactive update."""
+        # Use direct assignment to trigger watch method
         self.current_agent = agent
+
+    def update_agent_state(self, agents: List[Dict[str, Any]], current_agent: str) -> None:
+        """Atomically update both agents list and current agent.
+
+        This ensures that when watch_current_agent fires, available_agents
+        is already updated with the new agent information.
+
+        Args:
+            agents: List of available agents with their metadata
+            current_agent: ID of the current agent to display
+        """
+        # DEBUG
+        import sys
+        print(f"[DEBUG] update_agent_state called with {len(agents)} agents, current={current_agent}", file=sys.stderr)
+        for a in agents:
+            print(f"[DEBUG]   - {a.get('agent_id', 'NO_ID')}: {a}", file=sys.stderr)
+
+        # First update the agents list (data layer)
+        self.available_agents = agents
+
+        # Then directly update the UI without waiting for reactive watch
+        # This bypasses timing issues with multiple reactive assignments
+        try:
+            agent_display = self.query_one("#agent_display", Static)
+            print(f"[DEBUG] Found agent_display widget", file=sys.stderr)
+
+            if current_agent:
+                # Find agent info from the just-updated agents list
+                agent_info = None
+                for a in agents:
+                    if a.get("agent_id", a.get("id", "")) == current_agent:
+                        agent_info = a
+                        break
+
+                print(f"[DEBUG] agent_info found: {agent_info}", file=sys.stderr)
+
+                if agent_info:
+                    agent_name = agent_info.get("name", current_agent)
+                    adapter_type = agent_info.get("adapter_type", "")
+                    if adapter_type:
+                        display_text = f"Agent: {agent_name} ({adapter_type})"
+                    else:
+                        display_text = f"Agent: {agent_name}"
+                else:
+                    display_text = f"Agent: {current_agent}"
+
+                print(f"[DEBUG] Updating agent_display to: {display_text}", file=sys.stderr)
+                agent_display.update(display_text)
+
+                # Update CSS class for agent-specific styling
+                agent_display.remove_class("claude", "openai", "generic")
+                css_class = current_agent.lower()
+                if css_class in ["claude", "openai", "generic"]:
+                    agent_display.add_class(css_class)
+            else:
+                agent_display.update("Agent: none")
+
+            # Finally update the reactive property to keep state consistent
+            # This won't trigger watch since UI is already updated
+            self.current_agent = current_agent
+            print(f"[DEBUG] update_agent_state completed successfully", file=sys.stderr)
+
+        except Exception as e:
+            # If UI update fails, still update reactive property
+            print(f"[DEBUG] ERROR in update_agent_state: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            self.current_agent = current_agent

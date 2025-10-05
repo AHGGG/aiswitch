@@ -23,7 +23,8 @@ from ..events import (
     ChatCleared,
     CommandExecutionStarted,
     CommandExecutionCompleted,
-    AgentError
+    AgentError,
+    AgentAddRequested
 )
 
 
@@ -169,6 +170,31 @@ class MultiAgentContainer(Container):
             chat_display = self.query_one("#chat_display", ChatDisplay)
             chat_display.add_system_message(f"Warning: Failed to apply preset environment: {e}", "warning")
 
+    async def _apply_agent_preset(self, preset: str) -> None:
+        """Apply preset environment variables for a specific agent."""
+        try:
+            from ...preset import PresetManager
+            import os
+
+            preset_manager = PresetManager()
+            preset_config, _, _ = preset_manager.use_preset(preset, apply_to_env=False)
+
+            # Store original environment values
+            original_env = {}
+            for key in preset_config.variables.keys():
+                original_env[key] = os.environ.get(key)
+
+            # Apply preset variables to current environment
+            for key, value in preset_config.variables.items():
+                os.environ[key] = value
+
+            # Store the applied preset info for future reference
+            # (We could extend agent manager to support per-agent environments)
+
+        except Exception as e:
+            chat_display = self.query_one("#chat_display", ChatDisplay)
+            chat_display.add_system_message(f"Warning: Failed to apply agent preset: {e}", "warning")
+
     async def _register_default_agents(self) -> None:
         """Register default agents."""
         try:
@@ -200,6 +226,16 @@ class MultiAgentContainer(Container):
             # Set default agent if none selected
             if agents_info and not self.current_agent:
                 self.current_agent = agents_info[0]["agent_id"]
+
+            # Update status bar with latest agent info
+            try:
+                status_bar = self.query_one("#status_bar", StatusBar)
+                status_bar.set_agents(self.active_agents)
+                if self.current_agent:
+                    status_bar.set_current_agent(self.current_agent)
+            except Exception:
+                # Status bar might not be mounted yet, ignore
+                pass
 
         except Exception as e:
             chat_display = self.query_one("#chat_display", ChatDisplay)
@@ -237,6 +273,10 @@ class MultiAgentContainer(Container):
             chat_display = self.query_one("#chat_display", ChatDisplay)
             chat_display.add_system_message(f"Switched from {old_agent} to {event.agent_id}")
 
+            # Use atomic update to ensure status bar reflects current state immediately
+            status_bar = self.query_one("#status_bar", StatusBar)
+            status_bar.update_agent_state(self.active_agents, event.agent_id)
+
     @on(ExecutionModeChanged)
     async def handle_execution_mode_changed(self, event: ExecutionModeChanged) -> None:
         """Handle execution mode change."""
@@ -256,6 +296,54 @@ class MultiAgentContainer(Container):
 
         chat_display.clear_history()
         status_bar.set_message_count(0)
+
+    @on(AgentAddRequested)
+    async def handle_agent_add_requested(self, event: AgentAddRequested) -> None:
+        """Handle agent add request."""
+        chat_display = self.query_one("#chat_display", ChatDisplay)
+        status_bar = self.query_one("#status_bar", StatusBar)
+
+        try:
+            # DEBUG
+            import sys
+            print(f"[DEBUG] AgentAddRequested: {event.agent_name}, {event.adapter_type}, preset={event.preset}", file=sys.stderr)
+
+            # Create a config for the new agent
+            config = {"name": event.agent_name}
+
+            # If preset is specified, apply it before registering agent
+            if event.preset:
+                config["preset"] = event.preset
+                # Apply preset environment variables
+                await self._apply_agent_preset(event.preset)
+                chat_display.add_system_message(f"Applied preset '{event.preset}' for new agent")
+
+            # Register the new agent (this will refresh agent list internally)
+            success = await self.register_agent(event.agent_name, event.adapter_type, config)
+
+            print(f"[DEBUG] register_agent returned: {success}", file=sys.stderr)
+            print(f"[DEBUG] active_agents after register: {self.active_agents}", file=sys.stderr)
+
+            if success:
+                chat_display.add_system_message(f"Added agent '{event.agent_name}' ({event.adapter_type})", "success")
+
+                # Switch to the new agent (reactive update)
+                self.current_agent = event.agent_name
+
+                # Use atomic update to immediately reflect the new state in status bar
+                # This avoids timing issues with multiple reactive property assignments
+                print(f"[DEBUG] Calling status_bar.update_agent_state with {len(self.active_agents)} agents", file=sys.stderr)
+                status_bar.update_agent_state(self.active_agents, event.agent_name)
+                status_bar.show_success(f"Agent '{event.agent_name}' added and activated")
+            else:
+                chat_display.add_error_message(f"Failed to add agent '{event.agent_name}'")
+
+        except Exception as e:
+            import traceback
+            print(f"[DEBUG] Exception in handle_agent_add_requested: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            chat_display.add_error_message(f"Error adding agent '{event.agent_name}': {e}")
+            status_bar.show_error(f"Failed to add agent: {e}")
 
     async def execute_command(self, command: str) -> None:
         """Execute a command using current agent(s)."""

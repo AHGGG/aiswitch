@@ -110,3 +110,13 @@ class CommandExecutionCompleted(Message):
         self.command = command
         self.agents = agents
         self.results = results
+
+
+class AgentAddRequested(Message):
+    """Event fired when adding a new agent is requested."""
+
+    def __init__(self, agent_name: str, adapter_type: str, preset: Optional[str] = None) -> None:
+        super().__init__()
+        self.agent_name = agent_name
+        self.adapter_type = adapter_type
+        self.preset = preset

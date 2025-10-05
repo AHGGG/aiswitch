@@ -124,25 +124,39 @@ class InputPanel(Container):
             pass
 
     async def on_key(self, event) -> None:
-        """Handle keyboard shortcuts."""
+        """Handle keyboard shortcuts.
+
+        Only handle keys specific to input panel functionality.
+        Let app-level navigation keys (ctrl+left/right) propagate to parent.
+        """
         input_widget = self.query_one("#main_input", Input)
 
         # Only handle keys when input is focused
         if not input_widget.has_focus:
             return
 
+        # Navigation keys that InputPanel owns
         if event.key == "up":
             self._navigate_history(-1)
             event.prevent_default()
+            event.stop()  # Don't propagate to parent
         elif event.key == "down":
             self._navigate_history(1)
             event.prevent_default()
+            event.stop()  # Don't propagate to parent
         elif event.key == "ctrl+l":
-            input_widget.value = ""
-            event.prevent_default()
+            # Only clear if this is the input-specific clear command
+            # Let app-level ctrl+l propagate for global clear
+            if len(input_widget.value) > 0:
+                input_widget.value = ""
+                event.prevent_default()
+                event.stop()
         elif event.key == "tab":
             # TODO: Implement auto-completion
             event.prevent_default()
+            event.stop()
+        # DO NOT handle ctrl+left, ctrl+right, or other app-level navigation keys
+        # Let them propagate to the App level for agent switching
 
     def _add_to_history(self, message: str) -> None:
         """Add message to input history."""
@@ -231,13 +245,15 @@ class InputPanel(Container):
     def _show_help(self) -> None:
         """Show available commands."""
         help_text = """Available commands:
-/clear          - Clear chat history
-/agent <name>   - Switch to agent
-/mode <mode>    - Set execution mode (parallel/sequential)
-/preset <name>  - Switch to preset
-/save           - Save current session
-/load <name>    - Load saved session
-/help           - Show this help"""
+/clear              - Clear chat history
+/agent <name>       - Switch to agent
+/mode <mode>        - Set execution mode (parallel/sequential)
+/preset <name>      - Switch to preset
+/save               - Save current session
+/load <name>        - Load saved session
+/help               - Show this help
+
+For agent management, use Ctrl+P to open the command palette."""
 
         # Send as system message
         from ..events import AgentResponseReceived
