@@ -45,7 +45,7 @@ class StatusBar(Container):
             "disconnected": {"color": "red", "symbol": "○"},
             "error": {"color": "red", "symbol": "✕"},
             "busy": {"color": "blue", "symbol": "◑"},
-            "ready": {"color": "green", "symbol": "✓"}
+            "ready": {"color": "green", "symbol": "✓"},
         }
 
         config = status_config.get(status, {"color": "gray", "symbol": "?"})
@@ -61,7 +61,7 @@ class StatusBar(Container):
                 "disconnected": "Disconnected",
                 "error": "Connection Error",
                 "busy": "Processing...",
-                "ready": "Ready"
+                "ready": "Ready",
             }
             self.current_status = status_messages.get(status, "Unknown")
 
@@ -84,7 +84,7 @@ class StatusBar(Container):
                 "default": "default",
                 "claude": "claude",
                 "openai": "openai",
-                "gpt": "openai"
+                "gpt": "openai",
             }
             css_class = preset_classes.get(preset.lower(), "custom")
             preset_display.add_class(css_class)
@@ -159,7 +159,9 @@ class StatusBar(Container):
             self.show_temporary_message("Execution failed", 3.0)
             self.connection_status = "error"
 
-    def update_preset_info(self, preset: str, details: Optional[Dict[str, Any]] = None) -> None:
+    def update_preset_info(
+        self, preset: str, details: Optional[Dict[str, Any]] = None
+    ) -> None:
         """Update preset information."""
         self.current_preset = preset
 
@@ -234,7 +236,7 @@ class StatusBar(Container):
             "message_count": self.message_count,
             "current_preset": self.current_preset,
             "execution_mode": self.execution_mode,
-            "current_status": self.current_status
+            "current_status": self.current_status,
         }
 
     def reset_status(self) -> None:
@@ -296,7 +298,9 @@ class StatusBar(Container):
         # Use direct assignment to trigger watch method
         self.current_agent = agent
 
-    def update_agent_state(self, agents: List[Dict[str, Any]], current_agent: str) -> None:
+    def update_agent_state(
+        self, agents: List[Dict[str, Any]], current_agent: str
+    ) -> None:
         """Atomically update both agents list and current agent.
 
         This ensures that when watch_current_agent fires, available_agents
@@ -347,9 +351,10 @@ class StatusBar(Container):
             # This won't trigger watch since UI is already updated
             self.current_agent = current_agent
 
-        except Exception as e:
+        except Exception:
             # If UI update fails, still update reactive property
             import sys
             import traceback
+
             traceback.print_exc(file=sys.stderr)
             self.current_agent = current_agent

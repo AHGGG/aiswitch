@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 
 from textual import on
 from textual.reactive import reactive
@@ -17,15 +17,13 @@ from .status_bar import StatusBar
 from ..events import (
     UserMessageSubmitted,
     AgentSelected,
-    AgentResponseReceived,
-    AgentStatusChanged,
     ExecutionModeChanged,
     PresetChanged,
     ChatCleared,
     CommandExecutionStarted,
     CommandExecutionCompleted,
     AgentError,
-    AgentAddRequested
+    AgentAddRequested,
 )
 
 
@@ -45,7 +43,7 @@ class MultiAgentContainer(Container):
 
     def compose(self):
         """Compose the multi-agent container UI."""
-        from textual.app import ComposeResult
+
         yield ChatDisplay(id="chat_display")
         yield InputPanel(id="input_panel")
         yield StatusBar(id="status_bar")
@@ -135,10 +133,11 @@ class MultiAgentContainer(Container):
         try:
             # Import here to avoid circular imports
             from ...multi_agent import MultiAgentManager
+
             self.agent_manager = MultiAgentManager()
 
             # Apply current preset to environment before registering agents
-            if hasattr(self, 'current_preset') and self.current_preset:
+            if hasattr(self, "current_preset") and self.current_preset:
                 await self._apply_preset_to_environment(self.current_preset)
 
             # Register default agents
@@ -169,7 +168,9 @@ class MultiAgentContainer(Container):
 
         except Exception as e:
             chat_display = self.query_one("#chat_display", ChatDisplay)
-            chat_display.add_system_message(f"Warning: Failed to apply preset environment: {e}", "warning")
+            chat_display.add_system_message(
+                f"Warning: Failed to apply preset environment: {e}", "warning"
+            )
 
     async def _apply_agent_preset(self, preset: str) -> None:
         """Apply preset environment variables for a specific agent."""
@@ -194,7 +195,9 @@ class MultiAgentContainer(Container):
 
         except Exception as e:
             chat_display = self.query_one("#chat_display", ChatDisplay)
-            chat_display.add_system_message(f"Warning: Failed to apply agent preset: {e}", "warning")
+            chat_display.add_system_message(
+                f"Warning: Failed to apply agent preset: {e}", "warning"
+            )
 
     async def _register_default_agents(self) -> None:
         """Register default agents."""
@@ -202,6 +205,7 @@ class MultiAgentContainer(Container):
             # Check if Claude SDK is available
             try:
                 from claude_agent_sdk import query
+
                 claude_available = True
             except ImportError:
                 claude_available = False
@@ -213,7 +217,9 @@ class MultiAgentContainer(Container):
 
         except Exception as e:
             chat_display = self.query_one("#chat_display", ChatDisplay)
-            chat_display.add_system_message(f"Warning: Some agents could not be registered: {e}", "warning")
+            chat_display.add_system_message(
+                f"Warning: Some agents could not be registered: {e}", "warning"
+            )
 
     async def _refresh_agent_list(self) -> None:
         """Refresh the list of available agents."""
@@ -273,7 +279,9 @@ class MultiAgentContainer(Container):
             self.current_agent = event.agent_id
 
             chat_display = self.query_one("#chat_display", ChatDisplay)
-            chat_display.add_system_message(f"Switched from {old_agent} to {event.agent_id}")
+            chat_display.add_system_message(
+                f"Switched from {old_agent} to {event.agent_id}"
+            )
 
             # Use atomic update to ensure status bar reflects current state immediately
             status_bar = self.query_one("#status_bar", StatusBar)
@@ -314,30 +322,49 @@ class MultiAgentContainer(Container):
                 config["preset"] = event.preset
                 # Apply preset environment variables
                 await self._apply_agent_preset(event.preset)
-                chat_display.add_system_message(f"Applied preset '{event.preset}' for new agent")
+                chat_display.add_system_message(
+                    f"Applied preset '{event.preset}' for new agent"
+                )
 
             # Register the new agent (this will refresh agent list internally)
-            success = await self.register_agent(event.agent_name, event.adapter_type, config)
+            success = await self.register_agent(
+                event.agent_name, event.adapter_type, config
+            )
 
             if success:
-                chat_display.add_system_message(f"Added agent '{event.agent_name}' ({event.adapter_type})", "success")
+                chat_display.add_system_message(
+                    f"Added agent '{event.agent_name}' ({event.adapter_type})",
+                    "success",
+                )
 
                 # Switch to the new agent (reactive update)
                 self.current_agent = event.agent_name
 
                 # Use atomic update to immediately reflect the new state in status bar
                 # This avoids timing issues with multiple reactive property assignments
-                print(f"[DEBUG] Calling status_bar.update_agent_state with {len(self.active_agents)} agents", file=sys.stderr)
+                print(
+                    f"[DEBUG] Calling status_bar.update_agent_state with {len(self.active_agents)} agents",
+                    file=sys.stderr,
+                )
                 status_bar.update_agent_state(self.active_agents, event.agent_name)
-                status_bar.show_success(f"Agent '{event.agent_name}' added and activated")
+                status_bar.show_success(
+                    f"Agent '{event.agent_name}' added and activated"
+                )
             else:
-                chat_display.add_error_message(f"Failed to add agent '{event.agent_name}'")
+                chat_display.add_error_message(
+                    f"Failed to add agent '{event.agent_name}'"
+                )
 
         except Exception as e:
             import traceback
-            print(f"[DEBUG] Exception in handle_agent_add_requested: {e}", file=sys.stderr)
+
+            print(
+                f"[DEBUG] Exception in handle_agent_add_requested: {e}", file=sys.stderr
+            )
             traceback.print_exc(file=sys.stderr)
-            chat_display.add_error_message(f"Error adding agent '{event.agent_name}': {e}")
+            chat_display.add_error_message(
+                f"Error adding agent '{event.agent_name}': {e}"
+            )
             status_bar.show_error(f"Failed to add agent: {e}")
 
     async def execute_command(self, command: str) -> None:
@@ -361,18 +388,20 @@ class MultiAgentContainer(Container):
                     return
 
                 # Notify execution start
-                self.post_message(CommandExecutionStarted(command, agents_to_use, self.execution_mode))
+                self.post_message(
+                    CommandExecutionStarted(command, agents_to_use, self.execution_mode)
+                )
 
                 chat_display = self.query_one("#chat_display", ChatDisplay)
                 status_bar = self.query_one("#status_bar", StatusBar)
 
                 chat_display.add_execution_status(
-                    f"Executing command: {command}",
-                    agents_to_use,
-                    self.execution_mode
+                    f"Executing command: {command}", agents_to_use, self.execution_mode
                 )
 
-                status_bar.update_execution_info(agents_to_use, self.execution_mode, "started")
+                status_bar.update_execution_info(
+                    agents_to_use, self.execution_mode, "started"
+                )
 
                 # Execute the command
                 results = []
@@ -388,17 +417,21 @@ class MultiAgentContainer(Container):
                         chat_display.add_agent_message(
                             result.task_id.split("-")[0],  # Extract agent name
                             result.result,
-                            result.metadata
+                            result.metadata,
                         )
                     else:
                         chat_display.add_error_message(
                             result.error or "Unknown error",
-                            result.task_id.split("-")[0]
+                            result.task_id.split("-")[0],
                         )
 
                 # Notify execution completion
-                self.post_message(CommandExecutionCompleted(command, agents_to_use, results))
-                status_bar.update_execution_info(agents_to_use, self.execution_mode, "completed")
+                self.post_message(
+                    CommandExecutionCompleted(command, agents_to_use, results)
+                )
+                status_bar.update_execution_info(
+                    agents_to_use, self.execution_mode, "completed"
+                )
 
             except Exception as e:
                 chat_display = self.query_one("#chat_display", ChatDisplay)
@@ -414,11 +447,7 @@ class MultiAgentContainer(Container):
         from ...multi_agent.types import Task
         import uuid
 
-        task = Task(
-            id=str(uuid.uuid4()),
-            prompt=command,
-            agent_ids=agents
-        )
+        task = Task(id=str(uuid.uuid4()), prompt=command, agent_ids=agents)
 
         return await self.agent_manager.execute_task(agents, task, mode="parallel")
 
@@ -427,11 +456,7 @@ class MultiAgentContainer(Container):
         from ...multi_agent.types import Task
         import uuid
 
-        task = Task(
-            id=str(uuid.uuid4()),
-            prompt=command,
-            agent_ids=agents
-        )
+        task = Task(id=str(uuid.uuid4()), prompt=command, agent_ids=agents)
 
         return await self.agent_manager.execute_task(agents, task, mode="sequential")
 
@@ -451,11 +476,15 @@ class MultiAgentContainer(Container):
             for agent_info in self.active_agents:
                 agent_id = agent_info["agent_id"]
                 try:
-                    success = await self.agent_manager.switch_agent_env(agent_id, preset)
+                    success = await self.agent_manager.switch_agent_env(
+                        agent_id, preset
+                    )
                     if success:
                         success_count += 1
                 except Exception as e:
-                    chat_display.add_error_message(f"Failed to apply preset to {agent_id}: {e}")
+                    chat_display.add_error_message(
+                        f"Failed to apply preset to {agent_id}: {e}"
+                    )
 
             if success_count > 0:
                 self.current_preset = preset
@@ -467,23 +496,31 @@ class MultiAgentContainer(Container):
             status_bar = self.query_one("#status_bar", StatusBar)
             status_bar.show_error(f"Failed to apply preset: {e}")
 
-    async def register_agent(self, agent_id: str, adapter_type: str, config: Dict[str, Any] = None) -> bool:
+    async def register_agent(
+        self, agent_id: str, adapter_type: str, config: Dict[str, Any] = None
+    ) -> bool:
         """Register a new agent."""
         if not self.agent_manager:
             return False
 
         try:
-            await self.agent_manager.register_agent(agent_id, adapter_type, config or {})
+            await self.agent_manager.register_agent(
+                agent_id, adapter_type, config or {}
+            )
             await self._refresh_agent_list()
 
             chat_display = self.query_one("#chat_display", ChatDisplay)
-            chat_display.add_system_message(f"Agent '{agent_id}' registered successfully", "success")
+            chat_display.add_system_message(
+                f"Agent '{agent_id}' registered successfully", "success"
+            )
 
             return True
 
         except Exception as e:
             chat_display = self.query_one("#chat_display", ChatDisplay)
-            chat_display.add_error_message(f"Failed to register agent '{agent_id}': {e}")
+            chat_display.add_error_message(
+                f"Failed to register agent '{agent_id}': {e}"
+            )
             return False
 
     async def unregister_agent(self, agent_id: str) -> bool:
@@ -502,7 +539,9 @@ class MultiAgentContainer(Container):
 
         except Exception as e:
             chat_display = self.query_one("#chat_display", ChatDisplay)
-            chat_display.add_error_message(f"Failed to unregister agent '{agent_id}': {e}")
+            chat_display.add_error_message(
+                f"Failed to unregister agent '{agent_id}': {e}"
+            )
             return False
 
     def get_current_agent(self) -> str:
@@ -521,7 +560,9 @@ class MultiAgentContainer(Container):
         """Get list of active agents."""
         return list(self.active_agents)
 
-    def refresh(self, *, repaint: bool = True, layout: bool = False, recompose: bool = False) -> None:
+    def refresh(
+        self, *, repaint: bool = True, layout: bool = False, recompose: bool = False
+    ) -> None:
         """Refresh the widget."""
         super().refresh(repaint=repaint, layout=layout, recompose=recompose)
 

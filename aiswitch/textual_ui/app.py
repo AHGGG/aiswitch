@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from time import sleep
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, Optional
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -13,7 +12,11 @@ from textual.reactive import reactive
 from textual.widgets import Header, Footer
 
 from aiswitch.textual_ui.components.multi_agent_container import MultiAgentContainer
-from aiswitch.textual_ui.commands import AddAgentProvider, AgentManagementProvider, PresetManagementProvider
+from aiswitch.textual_ui.commands import (
+    AddAgentProvider,
+    AgentManagementProvider,
+    PresetManagementProvider,
+)
 from aiswitch.textual_ui.events import (
     UserMessageSubmitted,
     AgentSelected,
@@ -27,7 +30,7 @@ from aiswitch.textual_ui.events import (
     CommandExecutionStarted,
     CommandExecutionCompleted,
     AgentError,
-    AgentAddRequested
+    AgentAddRequested,
 )
 
 
@@ -102,6 +105,7 @@ class AISwitch(App):
         except Exception as e:
             self.app_status = "error"
             import traceback
+
             error_info = traceback.format_exc()
             print(f"❌ Error during app initialization: {e}")
             print("Full traceback:")
@@ -155,11 +159,15 @@ class AISwitch(App):
         # TODO: Implement session loading
         await self._load_session(event.session_name)
 
-    async def on_command_execution_started(self, event: CommandExecutionStarted) -> None:
+    async def on_command_execution_started(
+        self, event: CommandExecutionStarted
+    ) -> None:
         """Handle command execution start."""
         self.title = f"AISwitch - Executing on {', '.join(event.agents)}"
 
-    async def on_command_execution_completed(self, event: CommandExecutionCompleted) -> None:
+    async def on_command_execution_completed(
+        self, event: CommandExecutionCompleted
+    ) -> None:
         """Handle command execution completion."""
         self.title = "AISwitch - Multi-Agent Terminal Interface"
 
@@ -254,7 +262,6 @@ class AISwitch(App):
         container = self.query_one("#main_container", MultiAgentContainer)
         await container.refresh_state()
 
-
     # Helper methods
     async def _save_session(self, session_name: Optional[str] = None) -> None:
         """Save current session to file."""
@@ -265,6 +272,7 @@ class AISwitch(App):
             # Generate session name if not provided
             if not session_name:
                 from datetime import datetime
+
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 session_name = f"session_{timestamp}"
 
@@ -279,11 +287,14 @@ class AISwitch(App):
             }
 
             # Save to file (TODO: implement proper session storage)
-            session_file = os.path.expanduser(f"~/.aiswitch/sessions/{session_name}.json")
+            session_file = os.path.expanduser(
+                f"~/.aiswitch/sessions/{session_name}.json"
+            )
             os.makedirs(os.path.dirname(session_file), exist_ok=True)
 
             import json
-            with open(session_file, 'w') as f:
+
+            with open(session_file, "w") as f:
                 json.dump(session_data, f, indent=2)
 
             # Show success message
@@ -299,13 +310,16 @@ class AISwitch(App):
     async def _load_session(self, session_name: str) -> None:
         """Load session from file."""
         try:
-            session_file = os.path.expanduser(f"~/.aiswitch/sessions/{session_name}.json")
+            session_file = os.path.expanduser(
+                f"~/.aiswitch/sessions/{session_name}.json"
+            )
 
             if not os.path.exists(session_file):
                 raise FileNotFoundError(f"Session '{session_name}' not found")
 
             import json
-            with open(session_file, 'r') as f:
+
+            with open(session_file, "r") as f:
                 session_data = json.load(f)
 
             # Restore session state
@@ -390,7 +404,9 @@ For more information, visit: https://github.com/your-repo/aiswitch"""
         """Switch to a different preset."""
         self.post_message(PresetChanged(preset))
 
-    async def add_agent(self, agent_id: str, adapter_type: str, config: Dict[str, Any] = None) -> bool:
+    async def add_agent(
+        self, agent_id: str, adapter_type: str, config: Dict[str, Any] = None
+    ) -> bool:
         """Add a new agent to the application."""
         container = self.query_one("#main_container", MultiAgentContainer)
         return await container.register_agent(agent_id, adapter_type, config or {})
@@ -411,6 +427,7 @@ def run_aiswitch_app(preset: str = "default", **kwargs) -> None:
         print("App run completed")
     except Exception as e:
         import traceback
+
         print(f"Error in run_aiswitch_app: {e}")
         traceback.print_exc()
         raise

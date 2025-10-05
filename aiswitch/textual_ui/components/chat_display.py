@@ -11,7 +11,6 @@ from rich.text import Text
 from textual.reactive import reactive
 from textual.widgets import RichLog
 
-from ..events import AgentResponseReceived
 
 
 class ChatDisplay(RichLog):
@@ -27,13 +26,13 @@ class ChatDisplay(RichLog):
             "claude": "blue",
             "openai": "green",
             "generic": "yellow",
-            "default": "white"
+            "default": "white",
         }
         self.agents_icons = {
             "claude": "🧠",
             "openai": "🤖",
             "generic": "💻",
-            "default": "🔮"
+            "default": "🔮",
         }
 
     def watch_current_agent(self, agent: str) -> None:
@@ -46,7 +45,9 @@ class ChatDisplay(RichLog):
         if agent:
             self.add_class(agent)
 
-    def add_user_message(self, message: str, timestamp: Optional[datetime] = None) -> None:
+    def add_user_message(
+        self, message: str, timestamp: Optional[datetime] = None
+    ) -> None:
         """Add a user message to the chat display."""
         if timestamp is None:
             timestamp = datetime.now()
@@ -69,7 +70,7 @@ class ChatDisplay(RichLog):
         agent: str,
         message: str,
         metadata: Optional[Dict[str, Any]] = None,
-        timestamp: Optional[datetime] = None
+        timestamp: Optional[datetime] = None,
     ) -> None:
         """Add an agent message to the chat display."""
         if timestamp is None:
@@ -106,7 +107,7 @@ class ChatDisplay(RichLog):
         self,
         error: str,
         agent: Optional[str] = None,
-        timestamp: Optional[datetime] = None
+        timestamp: Optional[datetime] = None,
     ) -> None:
         """Add an error message to the chat display."""
         if timestamp is None:
@@ -128,10 +129,7 @@ class ChatDisplay(RichLog):
             self.scroll_end()
 
     def add_system_message(
-        self,
-        message: str,
-        level: str = "info",
-        timestamp: Optional[datetime] = None
+        self, message: str, level: str = "info", timestamp: Optional[datetime] = None
     ) -> None:
         """Add a system message to the chat display."""
         if timestamp is None:
@@ -139,17 +137,12 @@ class ChatDisplay(RichLog):
 
         time_str = timestamp.strftime("%H:%M:%S")
 
-        icons = {
-            "info": "ℹ️",
-            "warning": "⚠️",
-            "success": "✅",
-            "debug": "🔍"
-        }
+        icons = {"info": "ℹ️", "warning": "⚠️", "success": "✅", "debug": "🔍"}
         styles = {
             "info": "blue",
             "warning": "yellow",
             "success": "green",
-            "debug": "magenta"
+            "debug": "magenta",
         }
 
         text = Text()
@@ -167,7 +160,7 @@ class ChatDisplay(RichLog):
         message: str,
         agents: list[str],
         mode: str,
-        timestamp: Optional[datetime] = None
+        timestamp: Optional[datetime] = None,
     ) -> None:
         """Add execution status message."""
         if timestamp is None:
@@ -213,13 +206,13 @@ class ChatDisplay(RichLog):
 
         # Check for common code patterns
         code_patterns = [
-            r'def\s+\w+\s*\(',  # Python function
-            r'class\s+\w+\s*:',  # Python class
-            r'import\s+\w+',     # Python import
-            r'function\s+\w+\s*\(',  # JavaScript function
-            r'const\s+\w+\s*=',  # JavaScript const
-            r'let\s+\w+\s*=',    # JavaScript let
-            r'var\s+\w+\s*=',    # JavaScript var
+            r"def\s+\w+\s*\(",  # Python function
+            r"class\s+\w+\s*:",  # Python class
+            r"import\s+\w+",  # Python import
+            r"function\s+\w+\s*\(",  # JavaScript function
+            r"const\s+\w+\s*=",  # JavaScript const
+            r"let\s+\w+\s*=",  # JavaScript let
+            r"var\s+\w+\s*=",  # JavaScript var
         ]
 
         for pattern in code_patterns:
@@ -233,12 +226,12 @@ class ChatDisplay(RichLog):
         try:
             # Remove code block markers if present
             if message.startswith("```"):
-                lines = message.split('\n')
+                lines = message.split("\n")
                 if lines[0].startswith("```"):
                     lines = lines[1:]
                 if lines and lines[-1].startswith("```"):
                     lines = lines[:-1]
-                message = '\n'.join(lines)
+                message = "\n".join(lines)
 
             syntax = Syntax(message, language, theme="monokai", line_numbers=True)
             self.write(syntax)
@@ -275,7 +268,7 @@ class ChatDisplay(RichLog):
         # This is a simplified implementation
         # In a real implementation, you'd want to search through stored messages
         lines = []
-        for i, line in enumerate(str(self.renderable).split('\n')):
+        for i, line in enumerate(str(self.renderable).split("\n")):
             if query.lower() in line.lower():
                 lines.append(i)
         return lines

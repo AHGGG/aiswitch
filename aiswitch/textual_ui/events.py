@@ -26,7 +26,9 @@ class AgentSelected(Message):
 class AgentResponseReceived(Message):
     """Event fired when agent response is received."""
 
-    def __init__(self, agent: str, response: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self, agent: str, response: str, metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
         super().__init__()
         self.agent = agent
         self.response = response
@@ -36,7 +38,9 @@ class AgentResponseReceived(Message):
 class AgentStatusChanged(Message):
     """Event fired when agent status changes."""
 
-    def __init__(self, agent_id: str, status: str, details: Optional[str] = None) -> None:
+    def __init__(
+        self, agent_id: str, status: str, details: Optional[str] = None
+    ) -> None:
         super().__init__()
         self.agent_id = agent_id
         self.status = status
@@ -115,7 +119,9 @@ class CommandExecutionCompleted(Message):
 class AgentAddRequested(Message):
     """Event fired when adding a new agent is requested."""
 
-    def __init__(self, agent_name: str, adapter_type: str, preset: Optional[str] = None) -> None:
+    def __init__(
+        self, agent_name: str, adapter_type: str, preset: Optional[str] = None
+    ) -> None:
         super().__init__()
         self.agent_name = agent_name
         self.adapter_type = adapter_type

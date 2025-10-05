@@ -12,7 +12,12 @@ class EnvManager:
         self.default_variables = ["API_KEY", "API_BASE_URL", "API_MODEL"]
         self.system = platform.system()
 
-    def apply_preset(self, preset: PresetConfig, clear_previous: bool = True, current_preset: Optional[PresetConfig] = None) -> tuple[Dict[str, str], List[str]]:
+    def apply_preset(
+        self,
+        preset: PresetConfig,
+        clear_previous: bool = True,
+        current_preset: Optional[PresetConfig] = None,
+    ) -> tuple[Dict[str, str], List[str]]:
         """应用预设配置，可选择是否清除之前的环境变量
 
         返回：(应用的变量字典, 清除的变量列表)
@@ -32,10 +37,16 @@ class EnvManager:
             else:
                 # 如果没有当前预设，清除所有可能的AISwitch环境变量（除了新预设要设置的）
                 all_possible_vars = [
-                    "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL",
-                    "ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL",
+                    "ANTHROPIC_AUTH_TOKEN",
+                    "ANTHROPIC_API_KEY",
+                    "ANTHROPIC_BASE_URL",
+                    "ANTHROPIC_MODEL",
+                    "ANTHROPIC_SMALL_FAST_MODEL",
                     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
-                    "API_KEY", "API_BASE_URL", "API_MODEL", "API_TIMEOUT_MS"
+                    "API_KEY",
+                    "API_BASE_URL",
+                    "API_MODEL",
+                    "API_TIMEOUT_MS",
                 ]
 
                 for var in all_possible_vars:
@@ -97,13 +108,17 @@ class EnvManager:
 
         return validated
 
-    def export_to_shell(self, variables: Dict[str, str], shell_file: Optional[Path] = None) -> bool:
+    def export_to_shell(
+        self, variables: Dict[str, str], shell_file: Optional[Path] = None
+    ) -> bool:
         if self.system == "Windows":
             return self._export_to_windows_env(variables)
         else:
             return self._export_to_unix_shell(variables, shell_file)
 
-    def _export_to_unix_shell(self, variables: Dict[str, str], shell_file: Optional[Path] = None) -> bool:
+    def _export_to_unix_shell(
+        self, variables: Dict[str, str], shell_file: Optional[Path] = None
+    ) -> bool:
         if shell_file is None:
             shell_file = self._detect_shell_config()
 
@@ -115,8 +130,12 @@ class EnvManager:
             for key, value in variables.items():
                 export_lines.append(f'export {key}="{value}"')
 
-            with open(shell_file, 'a', encoding='utf-8') as f:
-                f.write('\n'.join(['', '# AISwitch environment variables'] + export_lines + ['']))
+            with open(shell_file, "a", encoding="utf-8") as f:
+                f.write(
+                    "\n".join(
+                        ["", "# AISwitch environment variables"] + export_lines + [""]
+                    )
+                )
 
             return True
         except Exception:
@@ -125,9 +144,9 @@ class EnvManager:
     def _export_to_windows_env(self, variables: Dict[str, str]) -> bool:
         try:
             for key, value in variables.items():
-                subprocess.run([
-                    'setx', key, value
-                ], check=True, capture_output=True, text=True)
+                subprocess.run(
+                    ["setx", key, value], check=True, capture_output=True, text=True
+                )
             return True
         except Exception:
             return False
@@ -138,13 +157,13 @@ class EnvManager:
             home / ".bashrc",
             home / ".zshrc",
             home / ".profile",
-            home / ".bash_profile"
+            home / ".bash_profile",
         ]
 
-        shell = os.environ.get('SHELL', '')
-        if 'zsh' in shell:
+        shell = os.environ.get("SHELL", "")
+        if "zsh" in shell:
             shell_configs.insert(0, home / ".zshrc")
-        elif 'bash' in shell:
+        elif "bash" in shell:
             shell_configs.insert(0, home / ".bashrc")
 
         for config in shell_configs:
@@ -156,8 +175,10 @@ class EnvManager:
     def get_env_info(self) -> Dict[str, str]:
         info = {
             "system": self.system,
-            "shell": os.environ.get('SHELL', 'unknown'),
-            "config_detected": str(self._detect_shell_config()) if self.system != "Windows" else "Windows Registry"
+            "shell": os.environ.get("SHELL", "unknown"),
+            "config_detected": str(self._detect_shell_config())
+            if self.system != "Windows"
+            else "Windows Registry",
         }
 
         current_env = self.get_current_env()

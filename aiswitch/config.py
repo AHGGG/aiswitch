@@ -18,7 +18,9 @@ class PresetConfig(BaseModel):
 class GlobalConfig(BaseModel):
     version: str = "1.0.0"
     current_preset: Optional[str] = None
-    default_variables: List[str] = Field(default_factory=lambda: ["API_KEY", "API_BASE_URL", "API_MODEL"])
+    default_variables: List[str] = Field(
+        default_factory=lambda: ["API_KEY", "API_BASE_URL", "API_MODEL"]
+    )
 
 
 class ProjectConfig(BaseModel):
@@ -45,31 +47,31 @@ class ConfigManager:
             return Path.home() / "AppData" / "Roaming" / "aiswitch"
 
         # 尝试XDG_CONFIG_HOME
-        xdg_config = os.environ.get('XDG_CONFIG_HOME')
+        xdg_config = os.environ.get("XDG_CONFIG_HOME")
         if xdg_config:
-            config_dir = Path(xdg_config) / 'aiswitch'
+            config_dir = Path(xdg_config) / "aiswitch"
             if self._test_write_access(config_dir):
                 return config_dir
 
         # 标准配置目录
-        standard_config = Path.home() / '.config' / 'aiswitch'
+        standard_config = Path.home() / ".config" / "aiswitch"
         if self._test_write_access(standard_config):
             return standard_config
 
         # 用户目录fallback
-        user_config = Path.home() / '.aiswitch'
+        user_config = Path.home() / ".aiswitch"
         if self._test_write_access(user_config):
             return user_config
 
         # 临时目录作为最后fallback
-        temp_config = Path(tempfile.gettempdir()) / 'aiswitch' / f'user-{os.getuid()}'
+        temp_config = Path(tempfile.gettempdir()) / "aiswitch" / f"user-{os.getuid()}"
         return temp_config
 
     def _test_write_access(self, config_dir: Path) -> bool:
         """测试目录是否可写"""
         try:
             config_dir.mkdir(parents=True, exist_ok=True)
-            test_file = config_dir / '.test'
+            test_file = config_dir / ".test"
             test_file.touch()
             test_file.unlink()
             return True
@@ -87,14 +89,16 @@ class ConfigManager:
         except PermissionError:
             # 如果仍然无法创建目录，提供有用的错误信息
             fallback_paths = [
-                Path.home() / '.aiswitch',
-                Path(tempfile.gettempdir()) / 'aiswitch' / f'user-{os.getuid()}'
+                Path.home() / ".aiswitch",
+                Path(tempfile.gettempdir()) / "aiswitch" / f"user-{os.getuid()}",
             ]
 
             error_msg = f"无法创建配置目录: {self.config_dir}\n"
             error_msg += "可能的解决方案:\n"
-            error_msg += f"1. 修复权限: sudo chown -R $USER:$USER ~/.config\n"
-            error_msg += f"2. 使用备用目录: export XDG_CONFIG_HOME={fallback_paths[0].parent}\n"
+            error_msg += "1. 修复权限: sudo chown -R $USER:$USER ~/.config\n"
+            error_msg += (
+                f"2. 使用备用目录: export XDG_CONFIG_HOME={fallback_paths[0].parent}\n"
+            )
             error_msg += f"3. 临时目录将自动使用: {fallback_paths[1]}"
 
             raise PermissionError(error_msg)
@@ -102,7 +106,7 @@ class ConfigManager:
     def get_global_config(self) -> GlobalConfig:
         try:
             if self.global_config_path.exists():
-                with open(self.global_config_path, 'r', encoding='utf-8') as f:
+                with open(self.global_config_path, "r", encoding="utf-8") as f:
                     data = yaml.safe_load(f)
                     return GlobalConfig(**data) if data else GlobalConfig()
         except Exception:
@@ -110,7 +114,7 @@ class ConfigManager:
         return GlobalConfig()
 
     def save_global_config(self, config: GlobalConfig):
-        with open(self.global_config_path, 'w', encoding='utf-8') as f:
+        with open(self.global_config_path, "w", encoding="utf-8") as f:
             yaml.dump(config.model_dump(), f, default_flow_style=False)
 
     def get_preset(self, name: str) -> Optional[PresetConfig]:
@@ -119,7 +123,7 @@ class ConfigManager:
             return None
 
         try:
-            with open(preset_path, 'r', encoding='utf-8') as f:
+            with open(preset_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
                 return PresetConfig(**data)
         except Exception:
@@ -130,7 +134,7 @@ class ConfigManager:
 
         preset_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(preset_path, 'w', encoding='utf-8') as f:
+        with open(preset_path, "w", encoding="utf-8") as f:
             yaml.dump(preset.model_dump(), f, default_flow_style=False)
 
         preset_path.chmod(0o600)
@@ -154,7 +158,7 @@ class ConfigManager:
     def get_current_config(self) -> Optional[PresetConfig]:
         if self.current_config_path.exists():
             try:
-                with open(self.current_config_path, 'r', encoding='utf-8') as f:
+                with open(self.current_config_path, "r", encoding="utf-8") as f:
                     data = yaml.safe_load(f)
                     return PresetConfig(**data) if data else None
             except Exception:
@@ -162,7 +166,7 @@ class ConfigManager:
         return None
 
     def save_current_config(self, preset: PresetConfig):
-        with open(self.current_config_path, 'w', encoding='utf-8') as f:
+        with open(self.current_config_path, "w", encoding="utf-8") as f:
             yaml.dump(preset.model_dump(), f, default_flow_style=False)
         self.current_config_path.chmod(0o600)
 
@@ -170,7 +174,9 @@ class ConfigManager:
         if self.current_config_path.exists():
             self.current_config_path.unlink()
 
-    def get_project_config(self, project_dir: Optional[Path] = None) -> Optional[ProjectConfig]:
+    def get_project_config(
+        self, project_dir: Optional[Path] = None
+    ) -> Optional[ProjectConfig]:
         if project_dir is None:
             project_dir = Path.cwd()
 
@@ -179,18 +185,20 @@ class ConfigManager:
             return None
 
         try:
-            with open(project_config_path, 'r', encoding='utf-8') as f:
+            with open(project_config_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
                 return ProjectConfig(**data) if data else None
         except Exception:
             return None
 
-    def save_project_config(self, config: ProjectConfig, project_dir: Optional[Path] = None):
+    def save_project_config(
+        self, config: ProjectConfig, project_dir: Optional[Path] = None
+    ):
         if project_dir is None:
             project_dir = Path.cwd()
 
         project_config_path = project_dir / self.project_config_name
-        with open(project_config_path, 'w', encoding='utf-8') as f:
+        with open(project_config_path, "w", encoding="utf-8") as f:
             yaml.dump(config.model_dump(), f, default_flow_style=False)
 
     def preset_exists(self, name: str) -> bool:
@@ -203,9 +211,11 @@ class ConfigManager:
         name_lower = name.lower()
         for preset in all_presets:
             preset_lower = preset.lower()
-            if (name_lower in preset_lower or
-                preset_lower in name_lower or
-                abs(len(name_lower) - len(preset_lower)) <= 2):
+            if (
+                name_lower in preset_lower
+                or preset_lower in name_lower
+                or abs(len(name_lower) - len(preset_lower)) <= 2
+            ):
                 similar.append(preset)
 
         return similar[:3]

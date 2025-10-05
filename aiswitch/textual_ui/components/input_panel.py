@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List
 
 from textual import on
 from textual.containers import Container, Horizontal
@@ -29,10 +29,7 @@ class InputPanel(Container):
     def compose(self):
         """Compose the input panel UI."""
         with Horizontal():
-            yield Input(
-                placeholder="Type your message...",
-                id="main_input"
-            )
+            yield Input(placeholder="Type your message...", id="main_input")
             yield Button("Send", id="send_btn", variant="primary")
             yield Button("⚙️", id="settings_btn", variant="default")
 
@@ -47,7 +44,7 @@ class InputPanel(Container):
             "claude": "Ask Claude anything...",
             "openai": "Chat with GPT...",
             "generic": "Enter command...",
-            "": "Type your message..."
+            "": "Type your message...",
         }
 
         placeholder = placeholders.get(agent, "Type your message...")
@@ -205,6 +202,7 @@ class InputPanel(Container):
 
         if cmd == "/clear":
             from ..events import ChatCleared
+
             self.post_message(ChatCleared())
 
         elif cmd == "/help":
@@ -214,28 +212,33 @@ class InputPanel(Container):
             agent_name = cmd[7:].strip()
             if agent_name:
                 from ..events import AgentSelected
+
                 self.post_message(AgentSelected(agent_name))
 
         elif cmd.startswith("/mode "):
             mode = cmd[6:].strip()
             if mode in ["parallel", "sequential"]:
                 from ..events import ExecutionModeChanged
+
                 self.post_message(ExecutionModeChanged(mode))
 
         elif cmd.startswith("/preset "):
             preset = cmd[8:].strip()
             if preset:
                 from ..events import PresetChanged
+
                 self.post_message(PresetChanged(preset))
 
         elif cmd == "/save":
             from ..events import SessionSaveRequested
+
             self.post_message(SessionSaveRequested())
 
         elif cmd.startswith("/load "):
             session_name = cmd[6:].strip()
             if session_name:
                 from ..events import SessionLoadRequested
+
                 self.post_message(SessionLoadRequested(session_name))
 
         else:
@@ -257,6 +260,7 @@ For agent management, use Ctrl+P to open the command palette."""
 
         # Send as system message
         from ..events import AgentResponseReceived
+
         self.post_message(AgentResponseReceived("system", help_text, {"type": "help"}))
 
     def set_agent(self, agent: str) -> None:

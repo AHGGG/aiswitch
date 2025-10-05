@@ -21,6 +21,7 @@ try:
         ProcessError,
         CLIJSONDecodeError,
     )
+
     CLAUDE_SDK_AVAILABLE = True
 except ImportError:
     CLAUDE_SDK_AVAILABLE = False
@@ -55,7 +56,9 @@ class ClaudeAdapter(BaseAdapter):
         has_auth = any(os.getenv(var) for var in required_vars)
 
         if not has_auth:
-            raise RuntimeError(f"Missing required environment variables: {required_vars}")
+            raise RuntimeError(
+                f"Missing required environment variables: {required_vars}"
+            )
 
         # If using ANTHROPIC_AUTH_TOKEN, also set ANTHROPIC_API_KEY for compatibility
         if os.getenv("ANTHROPIC_AUTH_TOKEN") and not os.getenv("ANTHROPIC_API_KEY"):
@@ -71,9 +74,7 @@ class ClaudeAdapter(BaseAdapter):
 
         if not CLAUDE_SDK_AVAILABLE or not query:
             return TaskResult(
-                task_id=task.id,
-                success=False,
-                error="Claude SDK not available"
+                task_id=task.id, success=False, error="Claude SDK not available"
             )
 
         start_time = time.time()
@@ -88,18 +89,20 @@ class ClaudeAdapter(BaseAdapter):
             try:
                 # Prepare options
                 options = ClaudeAgentOptions()
-                if hasattr(task, 'system_prompt') and task.system_prompt:
+                if hasattr(task, "system_prompt") and task.system_prompt:
                     options.system_prompt = task.system_prompt
-                if hasattr(task, 'max_tokens') and task.max_tokens:
+                if hasattr(task, "max_tokens") and task.max_tokens:
                     options.max_tokens = task.max_tokens
-                if hasattr(task, 'temperature') and task.temperature is not None:
+                if hasattr(task, "temperature") and task.temperature is not None:
                     options.temperature = task.temperature
 
                 # Execute query
                 response_chunks = []
                 has_response = False
 
-                async for response_message in query(prompt=task.prompt, options=options):
+                async for response_message in query(
+                    prompt=task.prompt, options=options
+                ):
                     has_response = True
 
                     if isinstance(response_message, AssistantMessage):
@@ -128,7 +131,7 @@ class ClaudeAdapter(BaseAdapter):
                 duration = time.time() - start_time
 
                 if has_response and response_chunks:
-                    result_text = ''.join(response_chunks)
+                    result_text = "".join(response_chunks)
                     return TaskResult(
                         task_id=task.id,
                         success=True,
@@ -136,16 +139,16 @@ class ClaudeAdapter(BaseAdapter):
                         metadata={
                             "adapter": "claude",
                             "chunks": len(response_chunks),
-                            "duration": duration
+                            "duration": duration,
                         },
-                        duration=duration
+                        duration=duration,
                     )
                 else:
                     return TaskResult(
                         task_id=task.id,
                         success=False,
                         error="No response received from Claude",
-                        duration=duration
+                        duration=duration,
                     )
 
             finally:
@@ -161,45 +164,45 @@ class ClaudeAdapter(BaseAdapter):
                 task_id=task.id,
                 success=False,
                 error="Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code",
-                duration=time.time() - start_time
+                duration=time.time() - start_time,
             )
         except CLIConnectionError as exc:
             return TaskResult(
                 task_id=task.id,
                 success=False,
                 error=f"Claude Code connection failed: {exc}",
-                duration=time.time() - start_time
+                duration=time.time() - start_time,
             )
         except ProcessError as exc:
             error_msg = f"Claude process failed: {exc}"
-            if hasattr(exc, 'exit_code'):
+            if hasattr(exc, "exit_code"):
                 error_msg = f"Claude process failed (exit code: {exc.exit_code}): {exc}"
             return TaskResult(
                 task_id=task.id,
                 success=False,
                 error=error_msg,
-                duration=time.time() - start_time
+                duration=time.time() - start_time,
             )
         except CLIJSONDecodeError as exc:
             return TaskResult(
                 task_id=task.id,
                 success=False,
                 error=f"Response parsing failed: {exc}",
-                duration=time.time() - start_time
+                duration=time.time() - start_time,
             )
         except ClaudeSDKError as exc:
             return TaskResult(
                 task_id=task.id,
                 success=False,
                 error=f"Claude SDK error: {exc}",
-                duration=time.time() - start_time
+                duration=time.time() - start_time,
             )
         except Exception as exc:
             return TaskResult(
                 task_id=task.id,
                 success=False,
                 error=f"Unexpected error: {exc}",
-                duration=time.time() - start_time
+                duration=time.time() - start_time,
             )
 
     async def switch_environment(self, preset: str, env_vars: Dict[str, str]) -> bool:

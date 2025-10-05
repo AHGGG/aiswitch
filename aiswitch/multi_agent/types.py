@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 class AgentStatus(Enum):
     """Agent status enumeration."""
+
     STOPPED = "stopped"
     STARTING = "starting"
     IDLE = "idle"
@@ -22,6 +23,7 @@ class AgentStatus(Enum):
 @dataclass
 class Task:
     """Represents a task to be executed by agents."""
+
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     prompt: str = ""
     agent_ids: List[str] = field(default_factory=list)
@@ -38,6 +40,7 @@ class Task:
 @dataclass
 class TaskResult:
     """Represents the result of a task execution."""
+
     task_id: str
     success: bool
     result: Optional[str] = None
@@ -50,6 +53,7 @@ class TaskResult:
 @dataclass
 class AgentConfig:
     """Configuration for an agent."""
+
     name: str = ""
     adapter_type: str = ""
     config: Dict[str, Any] = field(default_factory=dict)
@@ -60,6 +64,7 @@ class AgentConfig:
 @dataclass
 class AgentInfo:
     """Information about an agent."""
+
     agent_id: str
     name: str
     adapter_type: str

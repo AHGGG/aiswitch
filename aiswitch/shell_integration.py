@@ -2,7 +2,6 @@ import os
 import platform
 import shutil
 from pathlib import Path
-from typing import Optional
 
 
 class ShellIntegration:
@@ -13,39 +12,39 @@ class ShellIntegration:
 
     def get_shell_type(self) -> str:
         """检测当前shell类型"""
-        shell = os.environ.get('SHELL', '')
-        if 'zsh' in shell:
-            return 'zsh'
-        elif 'bash' in shell:
-            return 'bash'
-        elif 'fish' in shell:
-            return 'fish'
+        shell = os.environ.get("SHELL", "")
+        if "zsh" in shell:
+            return "zsh"
+        elif "bash" in shell:
+            return "bash"
+        elif "fish" in shell:
+            return "fish"
         else:
-            return 'bash'  # 默认bash
+            return "bash"  # 默认bash
 
     def get_shell_config_path(self) -> Path:
         """获取shell配置文件路径"""
         home = Path.home()
         shell_type = self.get_shell_type()
 
-        if shell_type == 'zsh':
-            return home / '.zshrc'
-        elif shell_type == 'fish':
-            return home / '.config' / 'fish' / 'config.fish'
+        if shell_type == "zsh":
+            return home / ".zshrc"
+        elif shell_type == "fish":
+            return home / ".config" / "fish" / "config.fish"
         else:  # bash
             # 优先选择 .bashrc，如果不存在则使用 .bash_profile
-            bashrc = home / '.bashrc'
-            if bashrc.exists() or self.system == 'Linux':
+            bashrc = home / ".bashrc"
+            if bashrc.exists() or self.system == "Linux":
                 return bashrc
             else:
-                return home / '.bash_profile'
+                return home / ".bash_profile"
 
     def get_integration_code(self) -> str:
         """获取要注入的shell集成代码"""
         shell_type = self.get_shell_type()
 
-        if shell_type == 'fish':
-            return '''# AISwitch shell integration for Fish
+        if shell_type == "fish":
+            return """# AISwitch shell integration for Fish
 function aiswitch
     set cmd $argv[1]
     set -e argv[1]
@@ -85,10 +84,10 @@ function aiswitch
     else
         command aiswitch $cmd $argv
     end
-end'''
+end"""
         else:
             # bash/zsh
-            return '''# AISwitch shell integration - define before interactive check
+            return """# AISwitch shell integration - define before interactive check
 # This ensures the function works in both interactive and non-interactive shells
 
 # Unset any existing function/alias first
@@ -144,7 +143,7 @@ aiswitch() {
 }
 
 # Export the function to make it available in subshells
-export -f aiswitch'''
+export -f aiswitch"""
 
     def is_installed(self) -> bool:
         """检查是否已经安装"""
@@ -154,7 +153,7 @@ export -f aiswitch'''
             return False
 
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, "r", encoding="utf-8") as f:
                 content = f.read()
             return self.marker_start in content
         except Exception:
@@ -174,42 +173,44 @@ export -f aiswitch'''
 
             # 备份原文件
             if config_path.exists():
-                backup_path = config_path.with_suffix(config_path.suffix + '.aiswitch.backup')
+                backup_path = config_path.with_suffix(
+                    config_path.suffix + ".aiswitch.backup"
+                )
                 shutil.copy2(config_path, backup_path)
 
             # 读取现有内容
             existing_content = ""
             if config_path.exists():
-                with open(config_path, 'r', encoding='utf-8') as f:
+                with open(config_path, "r", encoding="utf-8") as f:
                     existing_content = f.read()
 
             # 准备要添加的内容
             integration_code = self.get_integration_code()
-            content_to_add = f'''
+            content_to_add = f"""
 {self.marker_start}
 {integration_code}
 {self.marker_end}
-'''
+"""
 
             # 对于bash/zsh，在交互式检查之前插入函数定义
-            if 'case $- in' in existing_content:
+            if "case $- in" in existing_content:
                 # 找到交互式检查的位置
-                lines = existing_content.split('\n')
+                lines = existing_content.split("\n")
                 insert_pos = 0
                 for i, line in enumerate(lines):
-                    if 'case $- in' in line:
+                    if "case $- in" in line:
                         insert_pos = i
                         break
 
                 # 在交互式检查之前插入
                 lines.insert(insert_pos, content_to_add.strip())
-                new_content = '\n'.join(lines)
+                new_content = "\n".join(lines)
             else:
                 # 如果没有找到交互式检查，就追加到末尾
                 new_content = existing_content + content_to_add
 
             # 写入新内容
-            with open(config_path, 'w', encoding='utf-8') as f:
+            with open(config_path, "w", encoding="utf-8") as f:
                 f.write(new_content)
 
             return True
@@ -227,7 +228,7 @@ export -f aiswitch'''
 
         try:
             # 读取现有内容
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
             # 查找并移除标记块
@@ -243,7 +244,7 @@ export -f aiswitch'''
             end_idx += len(self.marker_end)
 
             # 使用行分割的方式来处理，确保不破坏文件结构
-            lines = content.split('\n')
+            lines = content.split("\n")
             new_lines = []
             in_marker_block = False
 
@@ -258,10 +259,10 @@ export -f aiswitch'''
                 if not in_marker_block:
                     new_lines.append(line)
 
-            new_content = '\n'.join(new_lines)
+            new_content = "\n".join(new_lines)
 
             # 写回文件
-            with open(config_path, 'w', encoding='utf-8') as f:
+            with open(config_path, "w", encoding="utf-8") as f:
                 f.write(new_content)
 
             return True
@@ -278,27 +279,31 @@ export -f aiswitch'''
             return {}
 
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
-            lines = content.split('\n')
+            lines = content.split("\n")
             existing_vars = {}
             in_env_block = False
 
             for line in lines:
                 # 检查是否是任何AISwitch环境变量块的开始
-                if line.strip().startswith("# >>> AISwitch environment variables") and line.strip().endswith(">>>"):
+                if line.strip().startswith(
+                    "# >>> AISwitch environment variables"
+                ) and line.strip().endswith(">>>"):
                     in_env_block = True
                     continue
-                elif line.strip().startswith("# <<< AISwitch environment variables") and line.strip().endswith("<<<"):
+                elif line.strip().startswith(
+                    "# <<< AISwitch environment variables"
+                ) and line.strip().endswith("<<<"):
                     in_env_block = False
                     continue
 
-                if in_env_block and line.strip().startswith('export '):
+                if in_env_block and line.strip().startswith("export "):
                     # 解析 export VAR="value" 格式
                     export_line = line.strip()[7:]  # 移除 "export "
-                    if '=' in export_line:
-                        var_name = export_line.split('=')[0]
+                    if "=" in export_line:
+                        var_name = export_line.split("=")[0]
                         existing_vars[var_name] = True
 
             return existing_vars
@@ -322,20 +327,24 @@ export -f aiswitch'''
             # 读取现有内容
             existing_content = ""
             if config_path.exists():
-                with open(config_path, 'r', encoding='utf-8') as f:
+                with open(config_path, "r", encoding="utf-8") as f:
                     existing_content = f.read()
 
             # 移除之前的环境变量配置(如果存在)
-            lines = existing_content.split('\n')
+            lines = existing_content.split("\n")
             new_lines = []
             in_env_block = False
 
             for line in lines:
                 # 检查是否是任何AISwitch环境变量块的开始
-                if line.strip().startswith("# >>> AISwitch environment variables") and line.strip().endswith(">>>"):
+                if line.strip().startswith(
+                    "# >>> AISwitch environment variables"
+                ) and line.strip().endswith(">>>"):
                     in_env_block = True
                     continue
-                elif line.strip().startswith("# <<< AISwitch environment variables") and line.strip().endswith("<<<"):
+                elif line.strip().startswith(
+                    "# <<< AISwitch environment variables"
+                ) and line.strip().endswith("<<<"):
                     in_env_block = False
                     continue
 
@@ -346,7 +355,7 @@ export -f aiswitch'''
             unset_statements = []
             for var in existing_vars.keys():
                 if var not in env_vars:  # 如果新预设中没有这个变量，就unset它
-                    unset_statements.append(f'unset {var}')
+                    unset_statements.append(f"unset {var}")
 
             # 准备新的环境变量配置
             env_exports = []
@@ -354,24 +363,26 @@ export -f aiswitch'''
             # 先添加unset语句
             if unset_statements:
                 env_exports.extend(unset_statements)
-                env_exports.append('')  # 空行分隔
+                env_exports.append("")  # 空行分隔
 
             # 再添加新的export语句
             for var, value in env_vars.items():
                 # 转义特殊字符
-                escaped_value = value.replace('"', '\\"').replace('$', '\\$').replace('`', '\\`')
+                escaped_value = (
+                    value.replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
+                )
                 env_exports.append(f'export {var}="{escaped_value}"')
 
-            env_content = f'''
+            env_content = f"""
 {env_marker_start}
 {chr(10).join(env_exports)}
-{env_marker_end}'''
+{env_marker_end}"""
 
             # 添加新的环境变量配置到文件末尾
-            new_content = '\n'.join(new_lines) + env_content
+            new_content = "\n".join(new_lines) + env_content
 
             # 写入新内容
-            with open(config_path, 'w', encoding='utf-8') as f:
+            with open(config_path, "w", encoding="utf-8") as f:
                 f.write(new_content)
 
             return True
@@ -389,30 +400,34 @@ export -f aiswitch'''
 
         try:
             # 读取现有内容
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
             # 移除所有AISwitch环境变量块
-            lines = content.split('\n')
+            lines = content.split("\n")
             new_lines = []
             in_env_block = False
 
             for line in lines:
                 # 检查是否是任何AISwitch环境变量块的开始
-                if line.strip().startswith("# >>> AISwitch environment variables") and line.strip().endswith(">>>"):
+                if line.strip().startswith(
+                    "# >>> AISwitch environment variables"
+                ) and line.strip().endswith(">>>"):
                     in_env_block = True
                     continue
-                elif line.strip().startswith("# <<< AISwitch environment variables") and line.strip().endswith("<<<"):
+                elif line.strip().startswith(
+                    "# <<< AISwitch environment variables"
+                ) and line.strip().endswith("<<<"):
                     in_env_block = False
                     continue
 
                 if not in_env_block:
                     new_lines.append(line)
 
-            new_content = '\n'.join(new_lines)
+            new_content = "\n".join(new_lines)
 
             # 写回文件
-            with open(config_path, 'w', encoding='utf-8') as f:
+            with open(config_path, "w", encoding="utf-8") as f:
                 f.write(new_content)
 
             return True
@@ -423,4 +438,4 @@ export -f aiswitch'''
 
     def get_install_command(self) -> str:
         """获取手动安装的命令"""
-        return f'eval $(aiswitch apply <preset> --export)'
+        return "eval $(aiswitch apply <preset> --export)"

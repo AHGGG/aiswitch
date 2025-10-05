@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 
 from .adapters import BaseAdapter, ClaudeAdapter
-from .types import Task, TaskResult, AgentStatus, AgentInfo, AgentConfig
+from .types import Task, TaskResult, AgentStatus
 
 
 class MultiAgentManager:
@@ -15,14 +15,11 @@ class MultiAgentManager:
     def __init__(self):
         self.agents: Dict[str, Dict[str, Any]] = {}
         self.adapters: Dict[str, type[BaseAdapter]] = {
-            'claude': ClaudeAdapter,
+            "claude": ClaudeAdapter,
         }
 
     async def register_agent(
-        self,
-        agent_id: str,
-        adapter_type: str,
-        config: Dict[str, Any] = None
+        self, agent_id: str, adapter_type: str, config: Dict[str, Any] = None
     ) -> None:
         """Register a new agent."""
         if adapter_type not in self.adapters:
@@ -44,17 +41,14 @@ class MultiAgentManager:
                 "status": AgentStatus.IDLE,
                 "config": config or {},
                 "task_count": 0,
-                "metadata": {}
+                "metadata": {},
             }
 
         except Exception as e:
             raise RuntimeError(f"Failed to initialize agent {agent_id}: {e}")
 
     async def execute_task(
-        self,
-        agent_ids: List[str],
-        task: Task,
-        mode: str = "parallel"
+        self, agent_ids: List[str], task: Task, mode: str = "parallel"
     ) -> List[TaskResult]:
         """Execute task on specified agents."""
         if not agent_ids:
@@ -72,7 +66,9 @@ class MultiAgentManager:
         else:
             raise ValueError(f"Unknown execution mode: {mode}")
 
-    async def _execute_parallel(self, agent_ids: List[str], task: Task) -> List[TaskResult]:
+    async def _execute_parallel(
+        self, agent_ids: List[str], task: Task
+    ) -> List[TaskResult]:
         """Execute task in parallel across agents."""
         tasks = []
 
@@ -89,7 +85,7 @@ class MultiAgentManager:
                 system_prompt=task.system_prompt,
                 max_tokens=task.max_tokens,
                 temperature=task.temperature,
-                timeout=task.timeout
+                timeout=task.timeout,
             )
 
             # Create execution coroutine
@@ -107,11 +103,13 @@ class MultiAgentManager:
 
             if isinstance(result, Exception):
                 # Handle exception
-                processed_results.append(TaskResult(
-                    task_id=f"{agent_id}-{task.id}",
-                    success=False,
-                    error=str(result)
-                ))
+                processed_results.append(
+                    TaskResult(
+                        task_id=f"{agent_id}-{task.id}",
+                        success=False,
+                        error=str(result),
+                    )
+                )
                 agent_info["status"] = AgentStatus.ERROR
             else:
                 processed_results.append(result)
@@ -120,7 +118,9 @@ class MultiAgentManager:
 
         return processed_results
 
-    async def _execute_sequential(self, agent_ids: List[str], task: Task) -> List[TaskResult]:
+    async def _execute_sequential(
+        self, agent_ids: List[str], task: Task
+    ) -> List[TaskResult]:
         """Execute task sequentially across agents."""
         results = []
 
@@ -137,7 +137,7 @@ class MultiAgentManager:
                 system_prompt=task.system_prompt,
                 max_tokens=task.max_tokens,
                 temperature=task.temperature,
-                timeout=task.timeout
+                timeout=task.timeout,
             )
 
             try:
@@ -152,9 +152,7 @@ class MultiAgentManager:
 
             except Exception as e:
                 result = TaskResult(
-                    task_id=f"{agent_id}-{task.id}",
-                    success=False,
-                    error=str(e)
+                    task_id=f"{agent_id}-{task.id}", success=False, error=str(e)
                 )
                 results.append(result)
                 agent_info["status"] = AgentStatus.ERROR
@@ -171,11 +169,7 @@ class MultiAgentManager:
             result = await adapter.execute_task(task, task.timeout)
             return result
         except Exception as e:
-            return TaskResult(
-                task_id=task.id,
-                success=False,
-                error=str(e)
-            )
+            return TaskResult(task_id=task.id, success=False, error=str(e))
 
     async def switch_agent_env(self, agent_id: str, preset: str) -> bool:
         """Switch environment for a specific agent."""
@@ -201,6 +195,7 @@ class MultiAgentManager:
         # TODO: Implement proper preset loading
         # For now, return current environment
         import os
+
         return dict(os.environ)
 
     def get_agent_status(self, agent_id: str) -> Dict[str, Any]:
@@ -220,7 +215,7 @@ class MultiAgentManager:
             "status": agent_info["status"].value,
             "task_count": agent_info["task_count"],
             "metadata": agent_info["metadata"],
-            "capabilities": agent_info["adapter"].get_capabilities()
+            "capabilities": agent_info["adapter"].get_capabilities(),
         }
 
     async def list_agents(self) -> List[Dict[str, Any]]:
@@ -246,7 +241,7 @@ class MultiAgentManager:
 
         try:
             # Clean up adapter
-            if hasattr(adapter, 'close'):
+            if hasattr(adapter, "close"):
                 await adapter.close()
         finally:
             # Remove from agents dict
@@ -256,7 +251,9 @@ class MultiAgentManager:
         """Get list of available adapter types."""
         return list(self.adapters.keys())
 
-    def register_adapter(self, adapter_type: str, adapter_class: type[BaseAdapter]) -> None:
+    def register_adapter(
+        self, adapter_type: str, adapter_class: type[BaseAdapter]
+    ) -> None:
         """Register a new adapter type."""
         self.adapters[adapter_type] = adapter_class
 
@@ -266,14 +263,14 @@ class MultiAgentManager:
             "total_agents": len(self.agents),
             "healthy_agents": 0,
             "error_agents": 0,
-            "agents": {}
+            "agents": {},
         }
 
         for agent_id, agent_info in self.agents.items():
             status = agent_info["status"]
             health_info["agents"][agent_id] = {
                 "status": status.value,
-                "healthy": status not in [AgentStatus.ERROR, AgentStatus.STOPPING]
+                "healthy": status not in [AgentStatus.ERROR, AgentStatus.STOPPING],
             }
 
             if health_info["agents"][agent_id]["healthy"]:

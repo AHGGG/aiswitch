@@ -17,7 +17,7 @@ from .utils import (
     is_valid_url,
     normalize_url,
     mask_sensitive_value,
-    get_system_info
+    get_system_info,
 )
 
 __all__ = [
@@ -31,5 +31,5 @@ __all__ = [
     "is_valid_url",
     "normalize_url",
     "mask_sensitive_value",
-    "get_system_info"
+    "get_system_info",
 ]

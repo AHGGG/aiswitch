@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any
 
 from functools import partial
 from textual.app import ComposeResult
 from textual.command import Hit, Hits, Provider
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.types import IgnoreReturnCallbackType
 from textual.widgets import Button, Label, Select, Static
 
 from .events import AgentAddRequested
@@ -120,8 +119,10 @@ class AddAgentScreen(ModalScreen[tuple[str, str] | None]):
             agent_type_select = self.query_one("#agent_type_select", Select)
             preset_select = self.query_one("#preset_select", Select)
 
-            if (agent_type_select.value is not Select.BLANK and
-                preset_select.value is not Select.BLANK):
+            if (
+                agent_type_select.value is not Select.BLANK
+                and preset_select.value is not Select.BLANK
+            ):
                 agent_type = str(agent_type_select.value)
                 preset = str(preset_select.value)
                 self.dismiss((agent_type, preset))
@@ -150,7 +151,7 @@ class AddAgentScreen(ModalScreen[tuple[str, str] | None]):
 
     def on_select_changed(self, event) -> None:
         """Clear error state when user makes a selection."""
-        if hasattr(event.select, 'remove_class'):
+        if hasattr(event.select, "remove_class"):
             event.select.remove_class("error")
 
         # Clear status message
@@ -180,7 +181,9 @@ def show_add_agent_dialog(app: Any) -> None:
             existing_agents = []
             try:
                 container = app.query_one("#main_container")
-                existing_agents = [a.get("agent_id", "") for a in container.get_active_agents()]
+                existing_agents = [
+                    a.get("agent_id", "") for a in container.get_active_agents()
+                ]
             except Exception:
                 pass
 
@@ -202,11 +205,12 @@ def get_preset_options() -> list[tuple[str, str]]:
     """Get available preset options."""
     try:
         from aiswitch.preset import PresetManager
+
         preset_manager = PresetManager()
         presets = preset_manager.list_presets()
         # Return list of (display_name, value) tuples
         return [(name, name) for name, _ in presets]
-    except Exception as e:
+    except Exception:
         # Fallback
         return [
             ("ds", "ds"),
@@ -252,25 +256,31 @@ class AgentManagementProvider(Provider):
             agent_name = agent.get("name", agent_id)
             adapter_type = agent.get("adapter_type", "")
 
-            display_name = f"{agent_name} ({adapter_type})" if adapter_type else agent_name
-            commands.append((
-                f"Switch to {display_name}",
-                f"switch-agent-{agent_id}",
-                "switch",
-                agent_id
-            ))
+            display_name = (
+                f"{agent_name} ({adapter_type})" if adapter_type else agent_name
+            )
+            commands.append(
+                (
+                    f"Switch to {display_name}",
+                    f"switch-agent-{agent_id}",
+                    "switch",
+                    agent_id,
+                )
+            )
 
         # Remove agent commands
         for agent in current_agents:
             agent_id = agent.get("agent_id", "")
             agent_name = agent.get("name", agent_id)
 
-            commands.append((
-                f"Remove Agent: {agent_name}",
-                f"remove-agent-{agent_id}",
-                "remove",
-                agent_id
-            ))
+            commands.append(
+                (
+                    f"Remove Agent: {agent_name}",
+                    f"remove-agent-{agent_id}",
+                    "remove",
+                    agent_id,
+                )
+            )
 
         for title, command_id, action, agent_id in commands:
             match = matcher.match(title)
@@ -301,6 +311,7 @@ class AgentManagementProvider(Provider):
 def switch_agent(app: Any, agent_id: str) -> None:
     """Switch to a specific agent."""
     from .events import AgentSelected
+
     app.post_message(AgentSelected(agent_id))
 
 
@@ -312,7 +323,12 @@ async def remove_agent(app: Any, agent_id: str) -> None:
     except Exception as e:
         # Show error in chat
         from .events import AgentResponseReceived
-        app.post_message(AgentResponseReceived("system", f"Failed to remove agent: {e}", {"type": "error"}))
+
+        app.post_message(
+            AgentResponseReceived(
+                "system", f"Failed to remove agent: {e}", {"type": "error"}
+            )
+        )
 
 
 class PresetManagementProvider(Provider):
@@ -329,12 +345,14 @@ class PresetManagementProvider(Provider):
 
         # Switch preset commands
         for preset in available_presets:
-            commands.append((
-                f"Switch to Preset: {preset}",
-                f"switch-preset-{preset}",
-                "switch",
-                preset
-            ))
+            commands.append(
+                (
+                    f"Switch to Preset: {preset}",
+                    f"switch-preset-{preset}",
+                    "switch",
+                    preset,
+                )
+            )
 
         for title, command_id, action, preset in commands:
             match = matcher.match(title)
@@ -350,6 +368,7 @@ class PresetManagementProvider(Provider):
         """Get list of available presets."""
         try:
             from ...preset import PresetManager
+
             preset_manager = PresetManager()
             presets = preset_manager.list_presets()
             # Return list of preset names
@@ -361,4 +380,5 @@ class PresetManagementProvider(Provider):
 def switch_preset(app: Any, preset: str) -> None:
     """Switch to a specific preset."""
     from .events import PresetChanged
+
     app.post_message(PresetChanged(preset))

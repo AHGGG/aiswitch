@@ -8,7 +8,6 @@ from textual.containers import Container, Horizontal
 from textual.reactive import reactive
 from textual.widgets import Static
 
-from ..events import AgentSelected
 
 
 class AgentSelector(Container):
@@ -91,7 +90,7 @@ class AgentSelector(Container):
             "error": {"color": "red", "text": "Error"},
             "offline": {"color": "gray", "text": "Offline"},
             "connecting": {"color": "blue", "text": "Connecting"},
-            "unknown": {"color": "gray", "text": "Unknown"}
+            "unknown": {"color": "gray", "text": "Unknown"},
         }
 
         config = status_config.get(status, status_config["unknown"])
@@ -119,12 +118,11 @@ class AgentSelector(Container):
                 "claude": "claude",
                 "openai": "openai",
                 "gpt": "openai",
-                "generic": "generic"
+                "generic": "generic",
             }
 
             css_class = agent_class_map.get(agent.lower(), "default")
             self.add_class(css_class)
-
 
     def set_agents(self, agents: List[Dict[str, Any]]) -> None:
         """Set available agents."""
@@ -160,7 +158,11 @@ class AgentSelector(Container):
 
     def remove_agent(self, agent_id: str) -> None:
         """Remove an agent from the list."""
-        agents = [a for a in self.available_agents if a.get("agent_id", a.get("id", "")) != agent_id]
+        agents = [
+            a
+            for a in self.available_agents
+            if a.get("agent_id", a.get("id", "")) != agent_id
+        ]
         self.available_agents = agents
 
         # If removed agent was current, select first available
@@ -179,10 +181,15 @@ class AgentSelector(Container):
 
         # If disabled agent is current, switch to first available
         if self.current_agent == agent_id:
-            available = [a for a in self.available_agents
-                        if a.get("agent_id", a.get("id", "")) != agent_id]
+            available = [
+                a
+                for a in self.available_agents
+                if a.get("agent_id", a.get("id", "")) != agent_id
+            ]
             if available:
-                self.current_agent = available[0].get("agent_id", available[0].get("id", ""))
+                self.current_agent = available[0].get(
+                    "agent_id", available[0].get("id", "")
+                )
 
     def refresh_agents(self) -> None:
         """Refresh the agent list display."""
