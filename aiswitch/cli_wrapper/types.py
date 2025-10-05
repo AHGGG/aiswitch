@@ -53,10 +53,3 @@ class AgentConfig:
     cwd: Optional[str] = None
 
 
-@dataclass
-class BackgroundProcess:
-    """后台进程信息"""
-    process_id: str
-    status: str
-    started_at: datetime
-    last_output: Optional[str] = None

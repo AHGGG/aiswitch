@@ -1,11 +1,9 @@
 """CLI代理管理器"""
 
-import asyncio
-from datetime import datetime
 from typing import Dict, List, Any, Optional
 from .agent_wrapper import CLIAgentWrapper
 from .adapters import GenericAdapter
-from .types import CommandResult, AgentConfig, ParsedResult
+from .types import CommandResult, AgentConfig
 
 
 class CLIAgentManager:
@@ -63,58 +61,6 @@ class CLIAgentManager:
 
         return await self.agents[agent_id].execute_command(session_id, command, **kwargs)
 
-    async def execute_parallel(self, commands: List[Dict[str, Any]]) -> List[CommandResult]:
-        """并行执行多个命令"""
-        tasks = []
-
-        for cmd_info in commands:
-            agent_id = cmd_info['agent_id']
-            session_id = cmd_info['session_id']
-            command = cmd_info['command']
-
-            if agent_id in self.agents:
-                task = self.agents[agent_id].execute_command(session_id, command)
-                tasks.append(task)
-
-        return await asyncio.gather(*tasks, return_exceptions=True)
-
-    async def execute_sequential(self, commands: List[Dict[str, Any]]) -> List[CommandResult]:
-        """串行执行多个命令"""
-        results = []
-
-        for cmd_info in commands:
-            agent_id = cmd_info['agent_id']
-            session_id = cmd_info['session_id']
-            command = cmd_info['command']
-
-            if agent_id in self.agents:
-                try:
-                    result = await self.agents[agent_id].execute_command(session_id, command)
-                    results.append(result)
-
-                    # 如果命令失败且设置了stop_on_error，则停止执行
-                    if not result.success and cmd_info.get('stop_on_error', False):
-                        break
-
-                except Exception as e:
-                    error_result = CommandResult(
-                        session_id=session_id,
-                        agent_id=agent_id,
-                        command=command,
-                        result=ParsedResult(
-                            output="",
-                            error=str(e),
-                            metadata={},
-                            success=False
-                        ),
-                        timestamp=datetime.now(),
-                        success=False
-                    )
-                    results.append(error_result)
-                    if cmd_info.get('stop_on_error', False):
-                        break
-
-        return results
 
     async def list_agents(self) -> List[Dict[str, Any]]:
         """列出所有代理"""

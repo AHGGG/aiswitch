@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Dict, Optional, Any, List, TYPE_CHECKING
 from .process_session import CLIProcessSession
-from .types import CommandResult, BackgroundProcess
+from .types import CommandResult
 
 if TYPE_CHECKING:
     from .adapters.base_adapter import BaseCliAdapter
@@ -17,9 +17,6 @@ class CLIAgentWrapper:
         self.agent_id = agent_id
         self.adapter = adapter
         self.sessions: Dict[str, CLIProcessSession] = {}
-        self.tool_use_cache: Dict[str, Any] = {}
-        self.file_content_cache: Dict[str, str] = {}
-        self.background_processes: Dict[str, BackgroundProcess] = {}
         self.capabilities: Optional[Dict[str, Any]] = None
 
     async def initialize(self) -> Dict[str, Any]:
