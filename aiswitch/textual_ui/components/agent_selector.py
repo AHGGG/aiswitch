@@ -9,7 +9,6 @@ from textual.reactive import reactive
 from textual.widgets import Static
 
 
-
 class AgentSelector(Container):
     """Agent selector component with status indicators."""
 

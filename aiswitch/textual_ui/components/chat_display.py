@@ -12,7 +12,6 @@ from textual.reactive import reactive
 from textual.widgets import RichLog
 
 
-
 class ChatDisplay(RichLog):
     """Intelligent chat display component with multi-agent support."""
 

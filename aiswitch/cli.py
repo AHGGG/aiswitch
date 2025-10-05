@@ -88,7 +88,7 @@ def add(name: str, env_pairs: tuple, description: str, tags: Optional[str]):
         if tags:
             tag_list = [tag.strip() for tag in tags.split(",")]
 
-        preset = preset_manager.add_preset_flexible(
+        preset_manager.add_preset_flexible(
             name=name, variables=variables, description=description, tags=tag_list
         )
 
@@ -170,14 +170,13 @@ def remove(names: tuple, force: bool):
 
 def _apply_impl(name: str, export: bool):
     preset_manager = PresetManager()
-    preset, applied_vars, cleared_vars = preset_manager.use_preset(name)
+    preset, applied_vars, cleared_vars = preset_manager.use_preset(
+        name, apply_to_env=not export
+    )
 
     if export:
-        # 先输出unset语句清除旧变量
-        for var in cleared_vars:
-            click.echo(f"unset {var}")
-        # 再输出export语句设置新变量
-        for var, value in applied_vars.items():
+        # --export 模式只输出 export 语句，交由调用方处理应用逻辑
+        for var, value in preset.variables.items():
             click.echo(f'export {var}="{value}"')
         return
     else:
@@ -319,7 +318,6 @@ def shell_cmd(name: str):
         # 仅为子shell准备环境，不修改当前指针与磁盘状态
         preset = preset_manager.config_manager.get_preset(name)
         if not preset:
-
             raise ValueError(
                 f"Preset '{name}' not found. Use 'aiswitch list' to see available presets."
             )
@@ -848,13 +846,12 @@ def handle_apply_one_time_mode():
         return False
 
     # 解析选项和预设名
-    export = False
     quiet = False
     name = None
 
     for arg in args_before_separator:
         if arg == "--export":
-            export = True
+            continue
         elif arg == "--quiet" or arg == "-q":
             quiet = True
         elif not arg.startswith("-"):

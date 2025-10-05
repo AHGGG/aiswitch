@@ -98,7 +98,7 @@ class AISwitch(App):
 
             # Container is already initialized with preset in compose()
             # Just update the title
-            container = self.query_one("#main_container", MultiAgentContainer)
+            self.query_one("#main_container", MultiAgentContainer)
 
             self.app_status = "ready"
 

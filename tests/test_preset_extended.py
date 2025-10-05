@@ -3,11 +3,11 @@
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import pytest
 
 from aiswitch.preset import PresetManager
-from aiswitch.config import PresetConfig, ProjectConfig
+from aiswitch.config import ProjectConfig
 
 
 class TestPresetManagerExtended:
@@ -556,6 +556,7 @@ class TestPresetManagerExtended:
         self.preset_manager.use_preset("current")
 
         updated_preset = self.preset_manager.update_preset("current", api_key="new-key")
+        assert updated_preset.variables["API_KEY"] == "new-key"
 
         # Check that current config is also updated
         current = self.preset_manager.get_current_preset()

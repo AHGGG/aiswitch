@@ -754,6 +754,7 @@ def test_apply_export_mode(temp_config_dir):
     output_lines = res.output.strip().split('\n')
     export_lines = [line for line in output_lines if line.startswith('export ')]
     unset_lines = [line for line in output_lines if line.startswith('unset ')]
+    assert not unset_lines
 
     # Should have export statements for new variables
     assert any('export API_KEY=' in line for line in export_lines)

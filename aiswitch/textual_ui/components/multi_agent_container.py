@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import sys
 from typing import Dict, List, Any
 
@@ -204,10 +205,10 @@ class MultiAgentContainer(Container):
         try:
             # Check if Claude SDK is available
             try:
-                from claude_agent_sdk import query
-
-                claude_available = True
-            except ImportError:
+                claude_available = (
+                    importlib.util.find_spec("claude_agent_sdk") is not None
+                )
+            except Exception:
                 claude_available = False
 
             if claude_available:

@@ -4,8 +4,7 @@ import os
 import platform
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, mock_open
-import pytest
+from unittest.mock import patch
 
 from aiswitch.shell_integration import ShellIntegration
 
