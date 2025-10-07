@@ -116,7 +116,7 @@ class StatusBar(Container):
 
         # Clear any existing timer
         if self._temporary_message_timer:
-            self._temporary_message_timer.cancel()
+            self._temporary_message_timer.stop()
 
         # Set timer to restore original message
         def restore_message():
@@ -249,7 +249,7 @@ class StatusBar(Container):
 
         # Clear any temporary message
         if self._temporary_message_timer:
-            self._temporary_message_timer.cancel()
+            self._temporary_message_timer.stop()
             self._temporary_message_timer = None
 
     def watch_current_agent(self, agent: str) -> None:
@@ -310,7 +310,7 @@ class StatusBar(Container):
             agents: List of available agents with their metadata
             current_agent: ID of the current agent to display
         """
-        self.log.info(f"[update_agent_state] current_agent: {current_agent}")
+
         # First update the agents list (data layer)
         self.available_agents = agents
 
@@ -326,6 +326,7 @@ class StatusBar(Container):
                     if a.get("agent_id", a.get("id", "")) == current_agent:
                         agent_info = a
                         break
+
 
                 if agent_info:
                     agent_name = agent_info.get("name", current_agent)
@@ -351,7 +352,7 @@ class StatusBar(Container):
             # This won't trigger watch since UI is already updated
             self.current_agent = current_agent
 
-        except Exception:
+        except Exception as e:
             # If UI update fails, still update reactive property
             import sys
             import traceback

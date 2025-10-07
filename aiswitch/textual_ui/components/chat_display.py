@@ -33,6 +33,8 @@ class ChatDisplay(RichLog):
             "generic": "💻",
             "default": "🔮",
         }
+        # Store message history for each agent separately
+        self._agent_histories: Dict[str, list[Any]] = {}
 
     def watch_current_agent(self, agent: str) -> None:
         """Update display style when agent changes."""
@@ -43,6 +45,9 @@ class ChatDisplay(RichLog):
         self.remove_class(*self.agents_colors.keys())
         if agent:
             self.add_class(agent)
+
+        # Reload history for the new agent
+        self._reload_agent_history(agent)
 
     def add_user_message(
         self, message: str, timestamp: Optional[datetime] = None
@@ -60,6 +65,18 @@ class ChatDisplay(RichLog):
 
         self.write(text)
         self.message_count += 1
+
+        # Store in current agent history
+        msg_data = {
+            "type": "user",
+            "message": message,
+            "timestamp": timestamp,
+            "text": text,
+        }
+        if self.current_agent:
+            if self.current_agent not in self._agent_histories:
+                self._agent_histories[self.current_agent] = []
+            self._agent_histories[self.current_agent].append(msg_data)
 
         if self.auto_scroll:
             self.scroll_end()
@@ -85,7 +102,8 @@ class ChatDisplay(RichLog):
         text.append(f"{icon} {agent.title()}: ", style=f"bold {color}")
 
         # Check if message contains code and should be syntax highlighted
-        if self._should_highlight_code(message, metadata):
+        has_code = self._should_highlight_code(message, metadata)
+        if has_code:
             language = metadata.get("language", "python")
             self.write(text)
             self._write_code_block(message, language)
@@ -98,6 +116,21 @@ class ChatDisplay(RichLog):
             self._add_metadata_info(metadata)
 
         self.message_count += 1
+
+        # Store in agent-specific history
+        msg_data = {
+            "type": "agent",
+            "agent": agent,
+            "message": message,
+            "metadata": metadata,
+            "timestamp": timestamp,
+            "text": text,
+            "has_code": has_code,
+            "language": metadata.get("language", "python") if has_code else None,
+        }
+        if agent not in self._agent_histories:
+            self._agent_histories[agent] = []
+        self._agent_histories[agent].append(msg_data)
 
         if self.auto_scroll:
             self.scroll_end()
@@ -123,6 +156,17 @@ class ChatDisplay(RichLog):
 
         text.append(error, style="red")
         self.write(text)
+
+        # Store error messages in agent-specific history
+        msg_data = {
+            "type": "error",
+            "error": error,
+            "agent": agent,
+            "timestamp": timestamp,
+            "text": text,
+        }
+        if agent and agent in self._agent_histories:
+            self._agent_histories[agent].append(msg_data)
 
         if self.auto_scroll:
             self.scroll_end()
@@ -150,6 +194,19 @@ class ChatDisplay(RichLog):
         text.append(message, style=styles.get(level, "blue"))
 
         self.write(text)
+
+        # Store system messages in current agent history
+        if self.current_agent:
+            msg_data = {
+                "type": "system",
+                "message": message,
+                "level": level,
+                "timestamp": timestamp,
+                "text": text,
+            }
+            if self.current_agent not in self._agent_histories:
+                self._agent_histories[self.current_agent] = []
+            self._agent_histories[self.current_agent].append(msg_data)
 
         if self.auto_scroll:
             self.scroll_end()
@@ -187,10 +244,57 @@ class ChatDisplay(RichLog):
         if old_agent != agent:
             self.add_system_message(f"Switched to {agent}", "info")
 
+    def _reload_agent_history(self, agent: str) -> None:
+        """Reload chat history for a specific agent."""
+        # Clear current display
+        self.clear()
+
+        # Get history for this agent (or empty list)
+        agent_history = self._agent_histories.get(agent, [])
+
+        # Replay all messages for this agent
+        for msg_data in agent_history:
+            msg_type = msg_data["type"]
+
+            if msg_type == "user":
+                # Recreate user message
+                text = msg_data["text"]
+                self.write(text)
+            elif msg_type == "agent":
+                # Recreate agent message
+                text = msg_data["text"]
+                if msg_data.get("has_code"):
+                    self.write(text)
+                    self._write_code_block(msg_data["message"], msg_data["language"])
+                else:
+                    self.write(text)
+
+                # Re-add metadata if present
+                metadata = msg_data.get("metadata", {})
+                if metadata and metadata.get("tokens"):
+                    self._add_metadata_info(metadata)
+            elif msg_type == "system":
+                # Recreate system message
+                text = msg_data["text"]
+                self.write(text)
+            elif msg_type == "error":
+                # Recreate error message
+                text = msg_data["text"]
+                self.write(text)
+
+        # Update message count
+        self.message_count = len(agent_history)
+
+        # Scroll to end
+        if self.auto_scroll:
+            self.scroll_end()
+
     def clear_history(self) -> None:
         """Clear chat history."""
         self.clear()
         self.message_count = 0
+        # Clear all stored histories
+        self._agent_histories.clear()
         self.add_system_message("Chat history cleared", "info")
 
     def _should_highlight_code(self, message: str, metadata: Dict[str, Any]) -> bool:

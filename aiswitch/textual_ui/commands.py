@@ -179,6 +179,7 @@ def show_add_agent_dialog(app: Any) -> None:
 
             # Generate a unique agent name
             existing_agents = []
+            container = None
             try:
                 container = app.query_one("#main_container")
                 existing_agents = [
@@ -194,8 +195,10 @@ def show_add_agent_dialog(app: Any) -> None:
                 counter += 1
             agent_name = f"{base_name}{counter}"
 
-            # Post the add agent event
-            app.post_message(AgentAddRequested(agent_name, agent_type, preset))
+            # Post the add agent event directly to container (not app)
+            # Events bubble up, so posting to app won't reach the container
+            if container:
+                container.post_message(AgentAddRequested(agent_name, agent_type, preset))
 
     # Show the modal dialog with preset options
     app.push_screen(AddAgentScreen(preset_options=preset_options), handle_result)
@@ -312,7 +315,12 @@ def switch_agent(app: Any, agent_id: str) -> None:
     """Switch to a specific agent."""
     from .events import AgentSelected
 
-    app.post_message(AgentSelected(agent_id))
+    # Post event to container, not app (events bubble up, not down)
+    try:
+        container = app.query_one("#main_container")
+        container.post_message(AgentSelected(agent_id))
+    except Exception:
+        pass
 
 
 async def remove_agent(app: Any, agent_id: str) -> None:

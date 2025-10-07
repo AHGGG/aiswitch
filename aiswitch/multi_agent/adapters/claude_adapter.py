@@ -12,6 +12,7 @@ from ..types import Task, TaskResult
 try:
     from claude_agent_sdk import (
         query,
+        ClaudeSDKClient,
         ClaudeAgentOptions,
         AssistantMessage,
         TextBlock,
@@ -27,6 +28,7 @@ except ImportError:
     CLAUDE_SDK_AVAILABLE = False
     # Fallback classes for type checking
     query = None
+    ClaudeSDKClient = object
     ClaudeAgentOptions = object
     AssistantMessage = object
     TextBlock = object
@@ -44,9 +46,10 @@ class ClaudeAdapter(BaseAdapter):
         super().__init__("claude")
         self.config = config or {}
         self.env_vars: Dict[str, str] = {}
+        self.client: Any = None  # ClaudeSDKClient instance for continuous conversation
 
     async def initialize(self) -> bool:
-        """Initialize Claude adapter."""
+        """Initialize Claude adapter with persistent ClaudeSDKClient."""
         if not CLAUDE_SDK_AVAILABLE:
             raise RuntimeError("claude-agent-sdk not available")
 
@@ -64,15 +67,24 @@ class ClaudeAdapter(BaseAdapter):
         if os.getenv("ANTHROPIC_AUTH_TOKEN") and not os.getenv("ANTHROPIC_API_KEY"):
             os.environ["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_AUTH_TOKEN")
 
+        # Create persistent ClaudeSDKClient for continuous conversation
+        try:
+            options = ClaudeAgentOptions()
+            self.client = ClaudeSDKClient(options=options)
+            # Enter the async context manager
+            await self.client.__aenter__()
+        except Exception as e:
+            raise RuntimeError(f"Failed to create ClaudeSDKClient: {e}")
+
         self._initialized = True
         return True
 
     async def execute_task(self, task: Task, timeout: float = 30.0) -> TaskResult:
-        """Execute a task using Claude SDK."""
-        if not self._initialized:
-            raise RuntimeError("Adapter not initialized")
+        """Execute a task using persistent ClaudeSDKClient for continuous conversation."""
+        if not self._initialized or not self.client:
+            raise RuntimeError("Adapter not initialized or client not available")
 
-        if not CLAUDE_SDK_AVAILABLE or not query:
+        if not CLAUDE_SDK_AVAILABLE:
             return TaskResult(
                 task_id=task.id, success=False, error="Claude SDK not available"
             )
@@ -87,22 +99,15 @@ class ClaudeAdapter(BaseAdapter):
                 os.environ[key] = value
 
             try:
-                # Prepare options
-                options = ClaudeAgentOptions()
-                if hasattr(task, "system_prompt") and task.system_prompt:
-                    options.system_prompt = task.system_prompt
-                if hasattr(task, "max_tokens") and task.max_tokens:
-                    options.max_tokens = task.max_tokens
-                if hasattr(task, "temperature") and task.temperature is not None:
-                    options.temperature = task.temperature
+                # Send message to Claude (maintains conversation context)
+                # Note: ClaudeSDKClient uses query() method, not send_message()
+                await self.client.query(task.prompt)
 
-                # Execute query
+                # Receive response (streaming)
                 response_chunks = []
                 has_response = False
 
-                async for response_message in query(
-                    prompt=task.prompt, options=options
-                ):
+                async for response_message in self.client.receive_response():
                     has_response = True
 
                     if isinstance(response_message, AssistantMessage):
@@ -212,6 +217,21 @@ class ClaudeAdapter(BaseAdapter):
             return True
         except Exception:
             return False
+
+    async def close(self) -> None:
+        """Clean up ClaudeSDKClient resources."""
+        if self.client:
+            try:
+                # Exit the async context manager
+                await self.client.__aexit__(None, None, None)
+            except Exception:
+                # Ignore errors during cleanup
+                pass
+            finally:
+                self.client = None
+
+        # Call parent close
+        await super().close()
 
     def get_capabilities(self) -> Dict[str, Any]:
         """Get Claude adapter capabilities."""

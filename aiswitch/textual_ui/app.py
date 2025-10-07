@@ -94,8 +94,6 @@ class AISwitch(App):
             if self.current_preset:
                 self.sub_title = f"Using preset: {self.current_preset}"
 
-            self.log.info(f"Loading default preset!!!! name: {self.current_preset}")
-
             # Container is already initialized with preset in compose()
             # Just update the title
             self.query_one("#main_container", MultiAgentContainer)
@@ -176,11 +174,7 @@ class AISwitch(App):
         # Log error or show notification
         pass
 
-    async def on_agent_add_requested(self, event: AgentAddRequested) -> None:
-        """Handle agent add requests."""
-        # The MultiAgentContainer handles the actual logic
-        # Here we can update app-level state if needed
-        pass
+    # Removed on_agent_add_requested - let the event bubble to MultiAgentContainer
 
     # Action handlers for key bindings
     def action_clear_chat(self) -> None:
@@ -225,7 +219,8 @@ class AISwitch(App):
         next_idx = (current_idx + 1) % len(agents)
         next_agent = agents[next_idx]["agent_id"]
 
-        self.post_message(AgentSelected(next_agent))
+        # Post to container, not app
+        container.post_message(AgentSelected(next_agent))
 
     def action_prev_agent(self) -> None:
         """Switch to previous available agent."""
@@ -247,7 +242,8 @@ class AISwitch(App):
         prev_idx = (current_idx - 1) % len(agents)
         prev_agent = agents[prev_idx]["agent_id"]
 
-        self.post_message(AgentSelected(prev_agent))
+        # Post to container, not app
+        container.post_message(AgentSelected(prev_agent))
 
     def action_set_sequential(self) -> None:
         """Set execution mode to sequential."""

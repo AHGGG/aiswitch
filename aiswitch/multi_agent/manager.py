@@ -240,9 +240,8 @@ class MultiAgentManager:
         agent_info["status"] = AgentStatus.STOPPING
 
         try:
-            # Clean up adapter
-            if hasattr(adapter, "close"):
-                await adapter.close()
+            # Clean up adapter (this will close ClaudeSDKClient for Claude adapters)
+            await adapter.close()
         finally:
             # Remove from agents dict
             del self.agents[agent_id]
