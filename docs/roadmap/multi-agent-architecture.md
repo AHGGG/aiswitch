@@ -132,7 +132,6 @@ class BaseAdapter(ABC):
 
     def __init__(self, adapter_type: str):
         self.adapter_type = adapter_type
-        self.config: Dict[str, Any] = {}
         self.env_vars: Dict[str, str] = {}
 
     @abstractmethod
@@ -159,7 +158,6 @@ class ClaudeAdapter(BaseAdapter):
 
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__("claude")
-        self.config = config or {}
 
     async def initialize(self) -> bool:
         """初始化Claude SDK"""

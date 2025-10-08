@@ -13,7 +13,6 @@ class BaseAdapter(ABC):
 
     def __init__(self, adapter_type: str):
         self.adapter_type = adapter_type
-        self.config: Dict[str, Any] = {}
         self._initialized = False
 
     @abstractmethod

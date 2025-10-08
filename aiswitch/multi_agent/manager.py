@@ -11,7 +11,7 @@ from .types import Task, TaskResult, AgentStatus
 
 class AgentInfo(TypedDict):
     agent_id: str
-    adapter: BaseAdapter
+    agent_instance: BaseAdapter
     adapter_type: str
     status: AgentStatus
     config: Dict[str, Any]
@@ -46,7 +46,7 @@ class MultiAgentManager:
 
             self.agents[agent_id] = {
                 "agent_id": agent_id,
-                "adapter": adapter_instance,
+                "agent_instance": adapter_instance,
                 "adapter_type": adapter_type,
                 "status": AgentStatus.IDLE,
                 "config": config or {},
@@ -173,10 +173,10 @@ class MultiAgentManager:
     async def _execute_on_agent(self, agent_id: str, task: Task) -> TaskResult:
         """Execute task on a specific agent."""
         agent_info = self.agents[agent_id]
-        adapter = agent_info["adapter"]
+        agent_instance = agent_info["agent_instance"]
 
         try:
-            result = await adapter.execute_task(task, task.timeout)
+            result = await agent_instance.execute_task(task, task.timeout)
             return result
         except Exception as e:
             return TaskResult(task_id=task.id, success=False, error=str(e))
@@ -187,13 +187,13 @@ class MultiAgentManager:
             raise ValueError(f"Agent {agent_id} not found")
 
         agent_info = self.agents[agent_id]
-        adapter = agent_info["adapter"]
+        agent_instance = agent_info["agent_instance"]
 
         # Load environment variables for preset
         env_vars = self._get_preset_env_vars(preset)
 
         try:
-            success = await adapter.switch_environment(preset, env_vars)
+            success = await agent_instance.switch_environment(preset, env_vars)
             if success:
                 agent_info["metadata"]["current_preset"] = preset
             return success
@@ -225,7 +225,7 @@ class MultiAgentManager:
             "status": agent_info["status"].value,
             "task_count": agent_info["task_count"],
             "metadata": agent_info["metadata"],
-            "capabilities": agent_info["adapter"].get_capabilities(),
+            "capabilities": agent_info["agent_instance"].get_capabilities(),
         }
 
     async def list_agents(self) -> List[Dict[str, Any]]:
@@ -244,14 +244,14 @@ class MultiAgentManager:
             raise ValueError(f"Agent {agent_id} not found")
 
         agent_info = self.agents[agent_id]
-        adapter = agent_info["adapter"]
+        agent_instance = agent_info["agent_instance"]
 
         # Set status to stopping
         agent_info["status"] = AgentStatus.STOPPING
 
         try:
-            # Clean up adapter (this will close ClaudeSDKClient for Claude adapters)
-            await adapter.close()
+            # Clean up agent instance (this will close ClaudeSDKClient for Claude adapters)
+            await agent_instance.close()
         finally:
             # Remove from agents dict
             del self.agents[agent_id]
