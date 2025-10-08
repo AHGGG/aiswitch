@@ -5,11 +5,11 @@ description = "A lightweight command-line tool for switching between different A
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "click>=8.0.0",
-    "pydantic>=2.0.0",
-    "pyyaml>=6.0.0",
-    "textual>=0.81.0",
-    "claude-agent-sdk",
+    "click>=8.3.0",
+    "pyyaml>=6.0.3",
+    "claude-agent-sdk>=0.1.1",
+    "textual>=6.2.1",
+    "pydantic>=2.12.0",
 ]
 keywords = ["ai", "api", "cli", "configuration", "environment"]
 authors = [
