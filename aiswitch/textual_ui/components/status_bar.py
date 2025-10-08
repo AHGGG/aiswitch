@@ -352,7 +352,7 @@ class StatusBar(Container):
             # This won't trigger watch since UI is already updated
             self.current_agent = current_agent
 
-        except Exception as e:
+        except Exception:
             # If UI update fails, still update reactive property
             import sys
             import traceback

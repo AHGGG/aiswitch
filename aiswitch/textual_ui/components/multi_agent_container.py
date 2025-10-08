@@ -20,7 +20,6 @@ from ..events import (
     AgentSelected,
     ExecutionModeChanged,
     PresetChanged,
-    ChatCleared,
     CommandExecutionStarted,
     CommandExecutionCompleted,
     AgentError,
@@ -298,15 +297,6 @@ class MultiAgentContainer(Container):
     async def handle_preset_changed(self, event: PresetChanged) -> None:
         """Handle preset change."""
         await self.apply_preset(event.preset)
-
-    @on(ChatCleared)
-    async def handle_chat_cleared(self, event: ChatCleared) -> None:
-        """Handle chat clear request."""
-        chat_display = self.query_one("#chat_display", ChatDisplay)
-        status_bar = self.query_one("#status_bar", StatusBar)
-
-        chat_display.clear_history()
-        status_bar.set_message_count(0)
 
     async def _add_agent_worker(self, agent_name: str, adapter_type: str, preset: str = None) -> None:
         """Worker method to handle agent addition operations."""

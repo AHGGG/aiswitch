@@ -63,29 +63,6 @@ class PresetChanged(Message):
         self.preset = preset
 
 
-class ChatCleared(Message):
-    """Event fired when chat is cleared."""
-
-    def __init__(self) -> None:
-        super().__init__()
-
-
-class SessionSaveRequested(Message):
-    """Event fired when session save is requested."""
-
-    def __init__(self, session_name: Optional[str] = None) -> None:
-        super().__init__()
-        self.session_name = session_name
-
-
-class SessionLoadRequested(Message):
-    """Event fired when session load is requested."""
-
-    def __init__(self, session_name: str) -> None:
-        super().__init__()
-        self.session_name = session_name
-
-
 class AgentError(Message):
     """Event fired when agent encounters an error."""
 

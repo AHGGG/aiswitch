@@ -200,12 +200,7 @@ class InputPanel(Container):
         """Handle special commands."""
         cmd = command.lower().strip()
 
-        if cmd == "/clear":
-            from ..events import ChatCleared
-
-            self.post_message(ChatCleared())
-
-        elif cmd == "/help":
+        if cmd == "/help":
             self._show_help()
 
         elif cmd.startswith("/agent "):
@@ -229,18 +224,6 @@ class InputPanel(Container):
 
                 self.post_message(PresetChanged(preset))
 
-        elif cmd == "/save":
-            from ..events import SessionSaveRequested
-
-            self.post_message(SessionSaveRequested())
-
-        elif cmd.startswith("/load "):
-            session_name = cmd[6:].strip()
-            if session_name:
-                from ..events import SessionLoadRequested
-
-                self.post_message(SessionLoadRequested(session_name))
-
         else:
             # Unknown command, show help
             self._show_help()
@@ -248,12 +231,9 @@ class InputPanel(Container):
     def _show_help(self) -> None:
         """Show available commands."""
         help_text = """Available commands:
-/clear              - Clear chat history
 /agent <name>       - Switch to agent
 /mode <mode>        - Set execution mode (parallel/sequential)
 /preset <name>      - Switch to preset
-/save               - Save current session
-/load <name>        - Load saved session
 /help               - Show this help
 
 For agent management, use Ctrl+P to open the command palette."""
