@@ -155,49 +155,41 @@ class MultiAgentContainer(Container):
             chat_display.add_error_message(f"Failed to initialize agent manager: {e}")
 
     async def _apply_preset_to_environment(self, preset: str) -> None:
-        """Apply preset environment variables to current process."""
+        """Apply preset environment variables to all agents.
+
+        Note: This method validates the preset exists but doesn't apply it yet,
+        since agents haven't been registered when this is called during initialization.
+        Individual agents will have the preset applied when they are registered.
+        """
         try:
             from ...preset import PresetManager
-            import os
 
             preset_manager = PresetManager()
+            # Just validate that the preset exists
             preset_config, _, _ = preset_manager.use_preset(preset, apply_to_env=False)
-
-            # Apply preset variables to current environment
-            for key, value in preset_config.variables.items():
-                os.environ[key] = value
 
         except Exception as e:
             chat_display = self.query_one("#chat_display", ChatDisplay)
             chat_display.add_system_message(
-                f"Warning: Failed to apply preset environment: {e}", "warning"
+                f"Warning: Failed to load preset '{preset}': {e}", "warning"
             )
 
     async def _apply_agent_preset(self, preset: str) -> None:
-        """Apply preset environment variables for a specific agent."""
+        """Apply preset environment variables for a specific agent through agent manager."""
         try:
             from ...preset import PresetManager
-            import os
 
             preset_manager = PresetManager()
             preset_config, _, _ = preset_manager.use_preset(preset, apply_to_env=False)
 
-            # Store original environment values
-            original_env = {}
-            for key in preset_config.variables.keys():
-                original_env[key] = os.environ.get(key)
-
-            # Apply preset variables to current environment
-            for key, value in preset_config.variables.items():
-                os.environ[key] = value
-
-            # Store the applied preset info for future reference
-            # (We could extend agent manager to support per-agent environments)
+            # Note: This method is now a no-op since environment variables are applied
+            # through agent manager's switch_agent_env method. Preset application should
+            # be done at the agent level, not globally.
 
         except Exception as e:
             chat_display = self.query_one("#chat_display", ChatDisplay)
             chat_display.add_system_message(
-                f"Warning: Failed to apply agent preset: {e}", "warning"
+                f"Warning: Failed to get agent preset: {e}", "warning"
             )
 
     async def _register_default_agents(self) -> None:
@@ -214,7 +206,7 @@ class MultiAgentContainer(Container):
             if claude_available:
                 await self.agent_manager.register_agent("claude", "claude", {})
 
-                # Apply current preset to default agent's adapter
+                # Apply current preset to default agent's adapter through the agent manager
                 if hasattr(self, "current_preset") and self.current_preset:
                     await self.agent_manager.switch_agent_env("claude", self.current_preset)
 
@@ -247,13 +239,12 @@ class MultiAgentContainer(Container):
                 status_bar.set_agents(self.active_agents)
                 if self.current_agent:
                     status_bar.set_current_agent(self.current_agent)
-            except Exception as e:
+            except Exception:
                 # Status bar might not be mounted yet, ignore
                 pass
 
 
         except Exception as e:
-            import traceback
 
             chat_display = self.query_one("#chat_display", ChatDisplay)
             chat_display.add_error_message(f"Failed to load agents: {e}")
@@ -326,13 +317,11 @@ class MultiAgentContainer(Container):
             # Create a config for the new agent
             config = {"name": agent_name}
 
-            # If preset is specified, apply it before registering agent
+            # If preset is specified, store it for later application
             if preset:
-                config["preset"] = preset
-                # Apply preset environment variables
-                await self._apply_agent_preset(preset)
+                config["preset"] = preset                
                 chat_display.add_system_message(
-                    f"Applied preset '{preset}' for new agent"
+                    f"Will apply preset '{preset}' to new agent"
                 )
 
             # Register the new agent (this will refresh agent list internally)
@@ -551,8 +540,6 @@ class MultiAgentContainer(Container):
             return True
 
         except Exception as e:
-            import traceback
-
             chat_display = self.query_one("#chat_display", ChatDisplay)
             chat_display.add_error_message(
                 f"Failed to register agent '{agent_id}': {e}"

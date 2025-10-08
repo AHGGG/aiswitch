@@ -26,7 +26,7 @@ class BaseAdapter(ABC):
         pass
 
     @abstractmethod
-    async def switch_environment(self, preset: str, env_vars: Dict[str, str]) -> bool:
+    async def set_env(self, preset: str, env_vars: Dict[str, str]) -> bool:
         """Switch environment variables."""
         pass
 

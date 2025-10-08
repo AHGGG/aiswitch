@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from aiswitch.preset import PresetManager
 from typing import Dict, List, Any, TypedDict
 
 from .adapters import BaseAdapter, ClaudeAdapter
@@ -158,6 +159,7 @@ class MultiAgentManager:
 
                 # Stop on first failure if configured
                 if not result.success and task.metadata.get("stop_on_error", False):
+                    print(f"error: {result}")
                     break
 
             except Exception as e:
@@ -193,7 +195,7 @@ class MultiAgentManager:
         env_vars = self._get_preset_env_vars(preset)
 
         try:
-            success = await agent_instance.switch_environment(preset, env_vars)
+            success = await agent_instance.set_env(preset, env_vars)
             if success:
                 agent_info["metadata"]["current_preset"] = preset
             return success
@@ -202,11 +204,9 @@ class MultiAgentManager:
 
     def _get_preset_env_vars(self, preset: str) -> Dict[str, str]:
         """Get environment variables for a preset."""
-        # TODO: Implement proper preset loading
-        # For now, return current environment
-        import os
-
-        return dict(os.environ)
+        preset_manager = PresetManager()
+        preset_config, _, _ = preset_manager.use_preset(preset, apply_to_env=False)
+        return preset_config.variables or {}
 
     def get_agent_status(self, agent_id: str) -> Dict[str, Any]:
         """Get status of a specific agent."""
