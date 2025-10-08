@@ -9,12 +9,12 @@ from textual.binding import Binding
 from textual.reactive import reactive
 from textual.widgets import Header, Footer
 
-from aiswitch.textual_ui.components.multi_agent_container import MultiAgentContainer
 from aiswitch.textual_ui.commands import (
     AddAgentProvider,
     AgentManagementProvider,
     PresetManagementProvider,
 )
+from aiswitch.textual_ui.components.multi_agent_container import MultiAgentContainer
 from aiswitch.textual_ui.events import (
     AgentSelected,
     ExecutionModeChanged,
@@ -30,7 +30,6 @@ class AISwitch(App):
     CSS_PATH = Path(__file__).parent / "styles.tcss"
 
     TITLE = "AISwitch - Multi-Agent Terminal Interface"
-    SUB_TITLE = "Seamlessly switch between AI agents"
 
     COMMANDS = {
         AddAgentProvider,
@@ -68,10 +67,6 @@ class AISwitch(App):
     async def on_mount(self) -> None:
         """Initialize the application when mounted."""
         try:
-            # Update title with preset info
-            if self.current_preset:
-                self.sub_title = f"Using preset: {self.current_preset}"
-
             # Container is already initialized with preset in compose()
             self.query_one("#main_container", MultiAgentContainer)
 
@@ -89,12 +84,10 @@ class AISwitch(App):
     async def on_execution_mode_changed(self, event: ExecutionModeChanged) -> None:
         """Handle execution mode changes."""
         self.execution_mode = event.mode
-        self.sub_title = f"Mode: {event.mode} | Preset: {self.current_preset}"
 
     async def on_preset_changed(self, event: PresetChanged) -> None:
         """Handle preset changes."""
         self.current_preset = event.preset
-        self.sub_title = f"Mode: {self.execution_mode} | Preset: {event.preset}"
 
     async def on_command_execution_started(
         self, event: CommandExecutionStarted

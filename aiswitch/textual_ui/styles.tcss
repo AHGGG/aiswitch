@@ -9,7 +9,7 @@ Screen {
 /* Header and Footer */
 Header {
     dock: top;
-    height: 3;
+    height: 1;
     background: $primary;
     color: $text-primary;
 }

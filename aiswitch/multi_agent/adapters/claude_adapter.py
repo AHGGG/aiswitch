@@ -2,41 +2,23 @@
 
 from __future__ import annotations
 
-import os
 import time
 from typing import Dict, Any
 
+from claude_agent_sdk import (
+    ClaudeSDKClient,
+    ClaudeAgentOptions,
+    AssistantMessage,
+    TextBlock,
+    ClaudeSDKError,
+    CLINotFoundError,
+    CLIConnectionError,
+    ProcessError,
+    CLIJSONDecodeError,
+)
+
 from .base_adapter import BaseAdapter
 from ..types import Task, TaskResult
-
-try:
-    from claude_agent_sdk import (
-        query,
-        ClaudeSDKClient,
-        ClaudeAgentOptions,
-        AssistantMessage,
-        TextBlock,
-        ClaudeSDKError,
-        CLINotFoundError,
-        CLIConnectionError,
-        ProcessError,
-        CLIJSONDecodeError,
-    )
-
-    CLAUDE_SDK_AVAILABLE = True
-except ImportError:
-    CLAUDE_SDK_AVAILABLE = False
-    # Fallback classes for type checking
-    query = None
-    ClaudeSDKClient = object
-    ClaudeAgentOptions = object
-    AssistantMessage = object
-    TextBlock = object
-    ClaudeSDKError = Exception
-    CLINotFoundError = Exception
-    CLIConnectionError = Exception
-    ProcessError = Exception
-    CLIJSONDecodeError = Exception
 
 
 class ClaudeAdapter(BaseAdapter):
@@ -45,30 +27,12 @@ class ClaudeAdapter(BaseAdapter):
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__("claude")
         self.config = config or {}
-        self._current_options: Any = None  # ClaudeAgentOptions, Track current options for reinitialization
+        self._current_options: ClaudeAgentOptions | None = None  # ClaudeAgentOptions, Track current options for reinitialization
         self.env_vars: Dict[str, str] = {}
-        self.client: Any = None  # ClaudeSDKClient instance for continuous conversation
+        self.client: ClaudeSDKClient | None = None  # ClaudeSDKClient instance for continuous conversation
 
     async def initialize(self) -> bool:
         """Initialize Claude adapter with persistent ClaudeSDKClient."""
-        if not CLAUDE_SDK_AVAILABLE:
-            raise RuntimeError("claude-agent-sdk not available")
-
-        # Check for required environment variables
-        # Claude SDK can use either ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN
-        required_vars = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"]
-        has_auth = any(os.getenv(var) for var in required_vars)
-
-        if not has_auth:
-            raise RuntimeError(
-                f"Missing required environment variables: {required_vars}"
-            )
-
-        # If using ANTHROPIC_AUTH_TOKEN, also set ANTHROPIC_API_KEY for compatibility
-        if os.getenv("ANTHROPIC_AUTH_TOKEN") and not os.getenv("ANTHROPIC_API_KEY"):
-            os.environ["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_AUTH_TOKEN")
-
-        # Create ClaudeAgentOptions with environment variables
         options = ClaudeAgentOptions(env=self.env_vars.copy())
         self._current_options = options
 
@@ -87,11 +51,6 @@ class ClaudeAdapter(BaseAdapter):
         """Execute a task using persistent ClaudeSDKClient for continuous conversation."""
         if not self._initialized or not self.client:
             raise RuntimeError("Adapter not initialized or client not available")
-
-        if not CLAUDE_SDK_AVAILABLE:
-            return TaskResult(
-                task_id=task.id, success=False, error="Claude SDK not available"
-            )
 
         start_time = time.time()
 
@@ -246,14 +205,3 @@ class ClaudeAdapter(BaseAdapter):
 
         # Call parent close
         await super().close()
-
-    def get_capabilities(self) -> Dict[str, Any]:
-        """Get Claude adapter capabilities."""
-        return {
-            "adapter_type": self.adapter_type,
-            "supports_streaming": True,
-            "supports_tools": True,
-            "supports_files": False,
-            "max_tokens": 4000,
-            "models": ["claude-3-5-sonnet-latest"],
-        }

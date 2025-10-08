@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import sys
 from typing import Dict, List, Any
 
 from textual import on
-from textual.reactive import reactive
 from textual.containers import Container
 from textual.css.query import NoMatches
+from textual.reactive import reactive
 
 from .chat_display import ChatDisplay
 from .input_panel import InputPanel
@@ -25,6 +24,7 @@ from ..events import (
     AgentError,
     AgentAddRequested,
 )
+from ...multi_agent import MultiAgentManager
 
 
 class MultiAgentContainer(Container):
@@ -38,7 +38,7 @@ class MultiAgentContainer(Container):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.agent_manager = None
+        self.agent_manager: MultiAgentManager | None = None
         self._execution_lock = asyncio.Lock()
 
     def compose(self):
@@ -140,7 +140,7 @@ class MultiAgentContainer(Container):
             if hasattr(self, "current_preset") and self.current_preset:
                 await self._apply_preset_to_environment(self.current_preset)
 
-            # Register default agents
+            # Register default agents, cost timely
             await self._register_default_agents()
 
             # Load initial agent list
@@ -194,20 +194,11 @@ class MultiAgentContainer(Container):
     async def _register_default_agents(self) -> None:
         """Register default agents."""
         try:
-            # Check if Claude SDK is available
-            try:
-                claude_available = (
-                    importlib.util.find_spec("claude_agent_sdk") is not None
-                )
-            except Exception:
-                claude_available = False
+            await self.agent_manager.register_agent("claude", "claude", {})
 
-            if claude_available:
-                await self.agent_manager.register_agent("claude", "claude", {})
-
-                # Apply current preset to default agent's adapter through the agent manager
-                if hasattr(self, "current_preset") and self.current_preset:
-                    await self.agent_manager.switch_agent_env("claude", self.current_preset)
+            # Apply current preset to default agent's adapter through the agent manager
+            if hasattr(self, "current_preset") and self.current_preset:
+                await self.agent_manager.switch_agent_env("claude", self.current_preset)
 
             # TODO: Add other agents as they become available
 
@@ -309,7 +300,7 @@ class MultiAgentContainer(Container):
 
             # If preset is specified, store it for later application
             if preset:
-                config["preset"] = preset                
+                config["preset"] = preset
                 chat_display.add_system_message(
                     f"Will apply preset '{preset}' to new agent"
                 )

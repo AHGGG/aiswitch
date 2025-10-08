@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Dict
 
 from ..types import Task, TaskResult
 
@@ -37,12 +37,3 @@ class BaseAdapter(ABC):
     def is_initialized(self) -> bool:
         """Check if adapter is initialized."""
         return self._initialized
-
-    def get_capabilities(self) -> Dict[str, Any]:
-        """Get adapter capabilities."""
-        return {
-            "adapter_type": self.adapter_type,
-            "supports_streaming": False,
-            "supports_tools": False,
-            "supports_files": False,
-        }

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from aiswitch.preset import PresetManager
 from typing import Dict, List, Any, TypedDict
 
+from aiswitch.preset import PresetManager
 from .adapters import BaseAdapter, ClaudeAdapter
 from .types import Task, TaskResult, AgentStatus
 
@@ -225,7 +225,6 @@ class MultiAgentManager:
             "status": agent_info["status"].value,
             "task_count": agent_info["task_count"],
             "metadata": agent_info["metadata"],
-            "capabilities": agent_info["agent_instance"].get_capabilities(),
         }
 
     async def list_agents(self) -> List[Dict[str, Any]]:
