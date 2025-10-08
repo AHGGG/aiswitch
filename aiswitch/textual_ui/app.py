@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Optional
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -18,10 +18,8 @@ from aiswitch.textual_ui.commands import (
     PresetManagementProvider,
 )
 from aiswitch.textual_ui.events import (
-    UserMessageSubmitted,
     AgentSelected,
     AgentResponseReceived,
-    AgentStatusChanged,
     ExecutionModeChanged,
     PresetChanged,
     ChatCleared,
@@ -29,8 +27,6 @@ from aiswitch.textual_ui.events import (
     SessionLoadRequested,
     CommandExecutionStarted,
     CommandExecutionCompleted,
-    AgentError,
-    AgentAddRequested,
 )
 
 
@@ -52,9 +48,7 @@ class AISwitch(App):
         Binding("ctrl+q", "quit", "Quit", priority=True),
         Binding("ctrl+l", "clear_chat", "Clear Chat"),
         Binding("ctrl+s", "save_session", "Save Session"),
-        Binding("ctrl+o", "load_session", "Load Session"),
         Binding("f1", "show_help", "Help"),
-        Binding("f2", "show_settings", "Settings"),
         # Agent switching keys with priority=True to work even when Input is focused
         Binding("ctrl+right", "next_agent", "Next Agent", priority=True),
         Binding("ctrl+left", "prev_agent", "Previous Agent", priority=True),
@@ -65,9 +59,7 @@ class AISwitch(App):
 
     # Reactive state
     current_preset = reactive("", layout=False)
-    available_agents = reactive([], layout=False)
     execution_mode = reactive("sequential", layout=False)
-    app_status = reactive("initializing", layout=False)
 
     def __init__(self, preset: str = "ds", **kwargs):
         super().__init__(**kwargs)
@@ -88,20 +80,14 @@ class AISwitch(App):
     async def on_mount(self) -> None:
         """Initialize the application when mounted."""
         try:
-            self.app_status = "loading"
-
             # Update title with preset info
             if self.current_preset:
                 self.sub_title = f"Using preset: {self.current_preset}"
 
             # Container is already initialized with preset in compose()
-            # Just update the title
             self.query_one("#main_container", MultiAgentContainer)
 
-            self.app_status = "ready"
-
         except Exception as e:
-            self.app_status = "error"
             import traceback
 
             error_info = traceback.format_exc()
@@ -111,26 +97,6 @@ class AISwitch(App):
             self.exit(1)
 
     # Event handlers for custom events
-    async def on_user_message_submitted(self, event: UserMessageSubmitted) -> None:
-        """Handle user message submission."""
-        # The MultiAgentContainer handles this internally
-        pass
-
-    async def on_agent_selected(self, event: AgentSelected) -> None:
-        """Handle agent selection."""
-        container = self.query_one("#main_container", MultiAgentContainer)
-        # Update app state
-        self.available_agents = container.get_active_agents()
-
-    async def on_agent_response_received(self, event: AgentResponseReceived) -> None:
-        """Handle agent response."""
-        # Update app statistics or logging
-        pass
-
-    async def on_agent_status_changed(self, event: AgentStatusChanged) -> None:
-        """Handle agent status changes."""
-        # Update global agent status tracking
-        pass
 
     async def on_execution_mode_changed(self, event: ExecutionModeChanged) -> None:
         """Handle execution mode changes."""
@@ -142,19 +108,12 @@ class AISwitch(App):
         self.current_preset = event.preset
         self.sub_title = f"Mode: {self.execution_mode} | Preset: {event.preset}"
 
-    async def on_chat_cleared(self, event: ChatCleared) -> None:
-        """Handle chat clear events."""
-        # Reset any global state if needed
-        pass
-
     async def on_session_save_requested(self, event: SessionSaveRequested) -> None:
         """Handle session save requests."""
-        # TODO: Implement session saving
         await self._save_session(event.session_name)
 
     async def on_session_load_requested(self, event: SessionLoadRequested) -> None:
         """Handle session load requests."""
-        # TODO: Implement session loading
         await self._load_session(event.session_name)
 
     async def on_command_execution_started(
@@ -169,13 +128,6 @@ class AISwitch(App):
         """Handle command execution completion."""
         self.title = "AISwitch - Multi-Agent Terminal Interface"
 
-    async def on_agent_error(self, event: AgentError) -> None:
-        """Handle agent errors."""
-        # Log error or show notification
-        pass
-
-    # Removed on_agent_add_requested - let the event bubble to MultiAgentContainer
-
     # Action handlers for key bindings
     def action_clear_chat(self) -> None:
         """Clear chat history."""
@@ -185,19 +137,9 @@ class AISwitch(App):
         """Save current session."""
         self.post_message(SessionSaveRequested())
 
-    async def action_load_session(self) -> None:
-        """Load a session."""
-        # TODO: Show session selection dialog
-        pass
-
     async def action_show_help(self) -> None:
         """Show help screen."""
         await self._show_help()
-
-    async def action_show_settings(self) -> None:
-        """Show settings screen."""
-        # TODO: Implement settings screen
-        pass
 
     def action_next_agent(self) -> None:
         """Switch to next available agent."""
@@ -282,7 +224,7 @@ class AISwitch(App):
                 "current_agent": container.get_current_agent(),
             }
 
-            # Save to file (TODO: implement proper session storage)
+            # Save to file
             session_file = os.path.expanduser(
                 f"~/.aiswitch/sessions/{session_name}.json"
             )
@@ -329,8 +271,6 @@ class AISwitch(App):
 
             if session_data.get("execution_mode"):
                 self.post_message(ExecutionModeChanged(session_data["execution_mode"]))
-
-            # TODO: Restore chat history and agent selection
 
             # Show success message
             status_bar = container.query_one("#status_bar")
@@ -383,35 +323,6 @@ For more information, visit: https://github.com/your-repo/aiswitch"""
 
         # Send help as system message
         self.post_message(AgentResponseReceived("system", help_text, {"type": "help"}))
-
-    def get_current_preset(self) -> str:
-        """Get current preset."""
-        return self.current_preset
-
-    def get_execution_mode(self) -> str:
-        """Get current execution mode."""
-        return self.execution_mode
-
-    def get_app_status(self) -> str:
-        """Get current app status."""
-        return self.app_status
-
-    async def switch_preset(self, preset: str) -> None:
-        """Switch to a different preset."""
-        self.post_message(PresetChanged(preset))
-
-    async def add_agent(
-        self, agent_id: str, adapter_type: str, config: Dict[str, Any] = None
-    ) -> bool:
-        """Add a new agent to the application."""
-        container = self.query_one("#main_container", MultiAgentContainer)
-        return await container.register_agent(agent_id, adapter_type, config or {})
-
-    async def remove_agent(self, agent_id: str) -> bool:
-        """Remove an agent from the application."""
-        container = self.query_one("#main_container", MultiAgentContainer)
-        return await container.unregister_agent(agent_id)
-
 
 def run_aiswitch_app(preset: str = "default", **kwargs) -> None:
     """Run the AISwitch Textual application."""
