@@ -278,7 +278,7 @@ class MultiAgentContainer(Container):
         status_bar.increment_message_count()
 
         # Execute command
-        await self.execute_command(event.message)
+        self.run_worker(self.execute_command(event.message), exclusive=True)
 
     @on(AgentSelected)
     async def handle_agent_selected(self, event: AgentSelected) -> None:
@@ -317,6 +317,69 @@ class MultiAgentContainer(Container):
         chat_display.clear_history()
         status_bar.set_message_count(0)
 
+    async def _add_agent_worker(self, agent_name: str, adapter_type: str, preset: str = None) -> None:
+        """Worker method to handle agent addition operations."""
+        try:
+            chat_display = self.query_one("#chat_display", ChatDisplay)
+            status_bar = self.query_one("#status_bar", StatusBar)
+
+            # Create a config for the new agent
+            config = {"name": agent_name}
+
+            # If preset is specified, apply it before registering agent
+            if preset:
+                config["preset"] = preset
+                # Apply preset environment variables
+                await self._apply_agent_preset(preset)
+                chat_display.add_system_message(
+                    f"Applied preset '{preset}' for new agent"
+                )
+
+            # Register the new agent (this will refresh agent list internally)
+            success = await self.register_agent(
+                agent_name, adapter_type, config
+            )
+
+            if success:
+                # Apply preset environment variables to the agent's adapter
+                if preset and self.agent_manager:
+                    await self.agent_manager.switch_agent_env(agent_name, preset)
+
+                chat_display.add_system_message(
+                    f"Added agent '{agent_name}' ({adapter_type})",
+                    "success",
+                )
+
+                # Switch to the new agent (reactive update)
+                self.current_agent = agent_name
+
+                # Use atomic update to immediately reflect the new state in status bar
+                # This avoids timing issues with multiple reactive property assignments
+                status_bar.update_agent_state(self.active_agents, agent_name)
+                status_bar.show_success(
+                    f"Agent '{agent_name}' added and activated"
+                )
+            else:
+                chat_display.add_error_message(
+                    f"Failed to add agent '{agent_name}'"
+                )
+
+        except Exception as e:
+            import traceback
+
+            self.log.error(
+                f"[DEBUG] Exception in _add_agent_worker: {e}", file=sys.stderr
+            )
+            traceback.print_exc(file=sys.stderr)
+
+            chat_display = self.query_one("#chat_display", ChatDisplay)
+            status_bar = self.query_one("#status_bar", StatusBar)
+
+            chat_display.add_error_message(
+                f"Error adding agent '{agent_name}': {e}"
+            )
+            status_bar.show_error(f"Failed to add agent: {e}")
+
     @on(AgentAddRequested)
     async def handle_agent_add_requested(self, event: AgentAddRequested) -> None:
         """Handle agent add request."""
@@ -324,59 +387,17 @@ class MultiAgentContainer(Container):
         chat_display = self.query_one("#chat_display", ChatDisplay)
         status_bar = self.query_one("#status_bar", StatusBar)
 
-        try:
-            # Create a config for the new agent
-            config = {"name": event.agent_name}
+        # Show initial status message
+        chat_display.add_system_message(
+            f"Adding agent '{event.agent_name}' ({event.adapter_type})..."
+        )
+        status_bar.show_info(f"Adding agent '{event.agent_name}'...")
 
-            # If preset is specified, apply it before registering agent
-            if event.preset:
-                config["preset"] = event.preset
-                # Apply preset environment variables
-                await self._apply_agent_preset(event.preset)
-                chat_display.add_system_message(
-                    f"Applied preset '{event.preset}' for new agent"
-                )
-
-            # Register the new agent (this will refresh agent list internally)
-            success = await self.register_agent(
-                event.agent_name, event.adapter_type, config
-            )
-
-            if success:
-                # Apply preset environment variables to the agent's adapter
-                if event.preset and self.agent_manager:
-                    await self.agent_manager.switch_agent_env(event.agent_name, event.preset)
-
-                chat_display.add_system_message(
-                    f"Added agent '{event.agent_name}' ({event.adapter_type})",
-                    "success",
-                )
-
-                # Switch to the new agent (reactive update)
-                self.current_agent = event.agent_name
-
-                # Use atomic update to immediately reflect the new state in status bar
-                # This avoids timing issues with multiple reactive property assignments
-                status_bar.update_agent_state(self.active_agents, event.agent_name)
-                status_bar.show_success(
-                    f"Agent '{event.agent_name}' added and activated"
-                )
-            else:
-                chat_display.add_error_message(
-                    f"Failed to add agent '{event.agent_name}'"
-                )
-
-        except Exception as e:
-            import traceback
-
-            print(
-                f"[DEBUG] Exception in handle_agent_add_requested: {e}", file=sys.stderr
-            )
-            traceback.print_exc(file=sys.stderr)
-            chat_display.add_error_message(
-                f"Error adding agent '{event.agent_name}': {e}"
-            )
-            status_bar.show_error(f"Failed to add agent: {e}")
+        # Execute agent addition in worker to avoid blocking UI
+        self.run_worker(
+            self._add_agent_worker(event.agent_name, event.adapter_type, event.preset),
+            exclusive=True
+        )
 
     async def execute_command(self, command: str) -> None:
         """Execute a command using current agent(s)."""

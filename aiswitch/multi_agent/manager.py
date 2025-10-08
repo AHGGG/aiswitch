@@ -3,17 +3,27 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Dict, List, Any
+from typing import Dict, List, Any, TypedDict
 
 from .adapters import BaseAdapter, ClaudeAdapter
 from .types import Task, TaskResult, AgentStatus
+
+
+class AgentInfo(TypedDict):
+    agent_id: str
+    adapter: BaseAdapter
+    adapter_type: str
+    status: AgentStatus
+    config: Dict[str, Any]
+    task_count: int
+    metadata: Dict[str, Any]
 
 
 class MultiAgentManager:
     """Multi-agent manager for coordinating AI agents."""
 
     def __init__(self):
-        self.agents: Dict[str, Dict[str, Any]] = {}
+        self.agents: Dict[str, AgentInfo] = {}
         self.adapters: Dict[str, type[BaseAdapter]] = {
             "claude": ClaudeAdapter,
         }
@@ -29,14 +39,14 @@ class MultiAgentManager:
             raise ValueError(f"Agent {agent_id} already registered")
 
         adapter_class = self.adapters[adapter_type]
-        adapter = adapter_class(config or {})
+        adapter_instance = adapter_class(config or {})
 
         try:
-            await adapter.initialize()
+            await adapter_instance.initialize()
 
             self.agents[agent_id] = {
                 "agent_id": agent_id,
-                "adapter": adapter,
+                "adapter": adapter_instance,
                 "adapter_type": adapter_type,
                 "status": AgentStatus.IDLE,
                 "config": config or {},
