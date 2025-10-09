@@ -31,7 +31,7 @@ class AISwitch(App):
 
     TITLE = "AISwitch - Multi-Agent Terminal Interface"
 
-    COMMANDS = {
+    COMMANDS = App.COMMANDS | {
         AddAgentProvider,
         AgentManagementProvider,
         PresetManagementProvider,

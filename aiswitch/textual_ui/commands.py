@@ -6,7 +6,7 @@ from typing import Any
 
 from functools import partial
 from textual.app import ComposeResult
-from textual.command import Hit, Hits, Provider
+from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Label, Select, Static
@@ -241,6 +241,15 @@ class AddAgentProvider(Provider):
                 help="Add a new agent with preset selection",
             )
 
+    async def discover(self) -> Hits:
+        """Default add agent suggestion when palette opens."""
+        yield DiscoveryHit(
+            "Add Agent",
+            partial(show_add_agent_dialog, self.app),
+            text="Add Agent",
+            help="Add a new agent with preset selection",
+        )
+
 
 class AgentManagementProvider(Provider):
     """Provider for agent management commands."""
@@ -310,6 +319,36 @@ class AgentManagementProvider(Provider):
             return container.get_active_agents()
         except Exception:
             return []
+
+    async def discover(self) -> Hits:
+        """Provide default suggestions for agent management."""
+        current_agents = self._get_current_agents()
+
+        for agent in current_agents:
+            agent_id = agent.get("agent_id", "")
+            agent_name = agent.get("name", agent_id)
+            adapter_type = agent.get("adapter_type", "")
+            display_name = (
+                f"{agent_name} ({adapter_type})" if adapter_type else agent_name
+            )
+
+            yield DiscoveryHit(
+                f"Switch to {display_name}",
+                partial(switch_agent, self.app, agent_id),
+                text=f"switch-agent-{agent_id}",
+                help=f"Switch to agent {agent_name}",
+            )
+
+        for agent in current_agents:
+            agent_id = agent.get("agent_id", "")
+            agent_name = agent.get("name", agent_id)
+
+            yield DiscoveryHit(
+                f"Remove Agent: {agent_name}",
+                partial(remove_agent, self.app, agent_id),
+                text=f"remove-agent-{agent_id}",
+                help=f"Remove agent {agent_name}",
+            )
 
 
 def switch_agent(app: Any, agent_id: str) -> None:
@@ -381,11 +420,19 @@ class PresetManagementProvider(Provider):
             preset_manager = PresetManager()
             presets = preset_manager.list_presets()
             # Return list of preset names
-            presets_ = [name for name, _ in presets]
-            print(f"presets_: {presets_}")
-            return presets_
+            return [name for name, _ in presets]
         except Exception:
             return ["ds", "88cc", "ar"]
+
+    async def discover(self) -> Hits:
+        """Show preset actions by default."""
+        for preset in self._get_available_presets():
+            yield DiscoveryHit(
+                f"Switch to Preset: {preset}",
+                partial(switch_preset, self.app, preset),
+                text=f"switch-preset-{preset}",
+                help=f"Activate preset {preset}",
+            )
 
 
 def switch_preset(app: Any, preset: str) -> None:
