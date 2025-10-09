@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import time
-from typing import Dict, Any
+from typing import Any, Dict, List, Optional
 
 from claude_agent_sdk import (
     ClaudeSDKClient,
     ClaudeAgentOptions,
     AssistantMessage,
     TextBlock,
+    SystemMessage,
+    ResultMessage,
+    UserMessage,
+    ToolUseBlock,
+    ToolResultBlock,
+    ThinkingBlock,
     ClaudeSDKError,
     CLINotFoundError,
     CLIConnectionError,
@@ -65,61 +73,72 @@ class ClaudeAdapter(BaseAdapter):
 
         try:
             # Send message to Claude (maintains conversation context)
-            # Note: ClaudeSDKClient uses query() method, not send_message()
             await self.client.query(task.prompt)
 
             # Receive response (streaming)
-            response_chunks = []
+            response_chunks: List[str] = []
             has_response = False
+            metadata: Dict[str, Any] = {"adapter": "claude"}
+            result_message: Optional[ResultMessage] = None
 
-            async for response_message in self.client.receive_response():
-                has_response = True
+            async def consume_messages() -> None:
+                nonlocal has_response, result_message
+                async for response_message in self.client.receive_response():
+                    has_response = True
 
-                if isinstance(response_message, AssistantMessage):
-                    # Extract text from AssistantMessage content blocks
-                    for block in response_message.content:
-                        if isinstance(block, TextBlock):
-                            chunk = block.text
-                            if chunk and chunk.strip():
-                                response_chunks.append(chunk)
-                        else:
-                            # Handle other block types (tool use, etc.)
-                            chunk = str(block)
-                            if chunk and chunk.strip():
-                                response_chunks.append(f"[Block: {chunk}]")
-                elif isinstance(response_message, str):
-                    # Handle string responses
-                    chunk = response_message
-                    if chunk and chunk.strip():
-                        response_chunks.append(chunk)
-                else:
-                    # Handle any other message types
-                    chunk = str(response_message)
-                    if chunk and chunk.strip():
-                        response_chunks.append(f"[Message: {chunk}]")
+                    if isinstance(response_message, AssistantMessage):
+                        response_chunks.extend(self._extract_assistant_chunks(response_message))
+                    elif isinstance(response_message, SystemMessage):
+                        system_meta = self._extract_system_metadata(response_message)
+                        if system_meta:
+                            metadata.update(system_meta)
+                    elif isinstance(response_message, ResultMessage):
+                        result_message = response_message
+                        metadata.update(self._extract_result_metadata(response_message))
+                        if response_message.result and response_message.result.strip():
+                            response_chunks.append(response_message.result.strip())
+                        break
+                    elif isinstance(response_message, UserMessage):
+                        rendered = self._render_user_message(response_message)
+                        if rendered:
+                            response_chunks.append(rendered)
+                    else:
+                        rendered = self._render_generic_message(response_message)
+                        if rendered:
+                            response_chunks.append(rendered)
+
+            await asyncio.wait_for(consume_messages(), timeout=timeout)
 
             duration = time.time() - start_time
+            metadata.update({"chunks": len(response_chunks), "duration": duration})
 
-            if has_response and response_chunks:
-                result_text = "".join(response_chunks)
+            result_text = "\n\n".join(chunk for chunk in response_chunks if chunk.strip()).strip()
+            result_subtype = metadata.get("result_subtype")
+            success_allowed = result_subtype in (None, "success")
+
+            if has_response and success_allowed and (result_text or result_subtype == "success"):
                 return TaskResult(
                     task_id=task.id,
                     success=True,
                     result=result_text,
-                    metadata={
-                        "adapter": "claude",
-                        "chunks": len(response_chunks),
-                        "duration": duration,
-                    },
+                    metadata=metadata,
                     duration=duration,
                 )
-            else:
-                return TaskResult(
-                    task_id=task.id,
-                    success=False,
-                    error="No response received from Claude",
-                    duration=duration,
-                )
+            return TaskResult(
+                task_id=task.id,
+                success=False,
+                error="No response received from Claude",
+                metadata=metadata,
+                duration=duration,
+            )
+        except asyncio.TimeoutError:
+            await self._safe_interrupt()
+            return TaskResult(
+                task_id=task.id,
+                success=False,
+                error=f"Timed out after {timeout} seconds waiting for Claude response",
+                duration=time.time() - start_time,
+            )
         except CLINotFoundError:
             return TaskResult(
                 task_id=task.id,
@@ -180,3 +199,85 @@ class ClaudeAdapter(BaseAdapter):
 
         # Call parent close
         await super().close()
+
+    async def _safe_interrupt(self) -> None:
+        if self.client is None:
+            return
+        try:
+            await self.client.interrupt()
+        except Exception:
+            pass
+
+    def _extract_assistant_chunks(self, message: AssistantMessage) -> List[str]:
+        chunks: List[str] = []
+        for block in message.content:
+            if isinstance(block, TextBlock):
+                text = block.text.strip()
+                if text:
+                    chunks.append(text)
+            elif isinstance(block, ToolUseBlock):
+                chunks.append(f"[Tool request] {block.name} -> {self._format_payload(block.input)}")
+            elif isinstance(block, ToolResultBlock):
+                status = "error" if block.is_error else "ok"
+                payload = self._format_payload(block.content)
+                chunks.append(f"[Tool result:{status}] {payload}")
+            elif isinstance(block, ThinkingBlock):
+                # Thinking blocks typically contain internal reasoning; omit from user-facing output.
+                continue
+            else:
+                chunks.append(f"[{type(block).__name__}] {block}")
+        return chunks
+
+    def _extract_system_metadata(self, message: SystemMessage) -> Dict[str, Any]:
+        metadata: Dict[str, Any] = {}
+        if message.subtype == "init":
+            session_id = message.data.get("session_id")
+            if session_id:
+                metadata["session_id"] = session_id
+        if message.subtype == "compact_boundary":
+            metadata["compaction"] = {
+                "pre_tokens": message.data.get("compact_metadata", {}).get("pre_tokens"),
+                "trigger": message.data.get("compact_metadata", {}).get("trigger"),
+            }
+        if message.subtype == "mcp_server_update":
+            servers = message.data.get("mcp_servers")
+            if servers:
+                metadata["mcp_servers"] = servers
+        return metadata
+
+    def _extract_result_metadata(self, message: ResultMessage) -> Dict[str, Any]:
+        metadata: Dict[str, Any] = {
+            "result_subtype": message.subtype,
+            "num_turns": message.num_turns,
+        }
+        if message.session_id:
+            metadata["session_id"] = message.session_id
+        if message.total_cost_usd is not None:
+            metadata["total_cost_usd"] = message.total_cost_usd
+        if message.usage is not None:
+            metadata["usage"] = message.usage
+        if message.result:
+            metadata.setdefault("result_summary", message.result)
+        return metadata
+
+    def _render_user_message(self, message: UserMessage) -> Optional[str]:
+        content = message.content
+        if isinstance(content, str):
+            text = content.strip()
+            return f"[User echo] {text}" if text else None
+        return None
+
+    def _render_generic_message(self, message: Any) -> Optional[str]:
+        text = str(message).strip()
+        return f"[{type(message).__name__}] {text}" if text else None
+
+    @staticmethod
+    def _format_payload(payload: Any) -> str:
+        if isinstance(payload, str):
+            return payload
+        if payload is None:
+            return "None"
+        try:
+            return json.dumps(payload, ensure_ascii=True)
+        except (TypeError, ValueError):
+            return repr(payload)
