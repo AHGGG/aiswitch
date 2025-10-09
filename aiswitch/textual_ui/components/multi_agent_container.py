@@ -25,6 +25,7 @@ from ..events import (
     AgentAddRequested,
 )
 from ...multi_agent import MultiAgentManager
+from ...multi_agent.adapters.base_adapter import DEFAULT_PRESET
 
 
 class MultiAgentContainer(Container):
@@ -51,7 +52,7 @@ class MultiAgentContainer(Container):
     async def on_mount(self) -> None:
         """Initialize the container when mounted."""
         # Initialize agent manager
-        await self._initialize_agent_manager()
+        self.call_later(self._initialize_agent_manager)
 
         # Sync reactive attributes with components
         self._sync_component_states()
@@ -136,10 +137,6 @@ class MultiAgentContainer(Container):
 
             self.agent_manager = MultiAgentManager()
 
-            # Apply current preset to environment before registering agents
-            if hasattr(self, "current_preset") and self.current_preset:
-                await self._apply_preset_to_environment(self.current_preset)
-
             # Register default agents, cost timely
             await self._register_default_agents()
 
@@ -153,55 +150,10 @@ class MultiAgentContainer(Container):
             chat_display = self.query_one("#chat_display", ChatDisplay)
             chat_display.add_error_message(f"Failed to initialize agent manager: {e}")
 
-    async def _apply_preset_to_environment(self, preset: str) -> None:
-        """Apply preset environment variables to all agents.
-
-        Note: This method validates the preset exists but doesn't apply it yet,
-        since agents haven't been registered when this is called during initialization.
-        Individual agents will have the preset applied when they are registered.
-        """
-        try:
-            from ...preset import PresetManager
-
-            preset_manager = PresetManager()
-            # Just validate that the preset exists
-            preset_config, _, _ = preset_manager.use_preset(preset, apply_to_env=False)
-
-        except Exception as e:
-            chat_display = self.query_one("#chat_display", ChatDisplay)
-            chat_display.add_system_message(
-                f"Warning: Failed to load preset '{preset}': {e}", "warning"
-            )
-
-    async def _apply_agent_preset(self, preset: str) -> None:
-        """Apply preset environment variables for a specific agent through agent manager."""
-        try:
-            from ...preset import PresetManager
-
-            preset_manager = PresetManager()
-            preset_config, _, _ = preset_manager.use_preset(preset, apply_to_env=False)
-
-            # Note: This method is now a no-op since environment variables are applied
-            # through agent manager's switch_agent_env method. Preset application should
-            # be done at the agent level, not globally.
-
-        except Exception as e:
-            chat_display = self.query_one("#chat_display", ChatDisplay)
-            chat_display.add_system_message(
-                f"Warning: Failed to get agent preset: {e}", "warning"
-            )
-
     async def _register_default_agents(self) -> None:
         """Register default agents."""
         try:
-            await self.agent_manager.register_agent("claude", "claude", {})
-
-            # Apply current preset to default agent's adapter through the agent manager
-            if hasattr(self, "current_preset") and self.current_preset:
-                await self.agent_manager.switch_agent_env("claude", self.current_preset)
-
-            # TODO: Add other agents as they become available
-
+            await self.agent_manager.register_agent("claude", "claude", {"preset": DEFAULT_PRESET})
         except Exception as e:
             chat_display = self.query_one("#chat_display", ChatDisplay)
             chat_display.add_system_message(
@@ -312,23 +264,22 @@ class MultiAgentContainer(Container):
 
             if success:
                 # Apply preset environment variables to the agent's adapter
-                if preset and self.agent_manager:
-                    await self.agent_manager.switch_agent_env(agent_name, preset)
+                async def _finalize_agent_add():
+                    # Switch to the new agent (reactive update)
+                    self.current_agent = agent_name
 
-                chat_display.add_system_message(
-                    f"Added agent '{agent_name}' ({adapter_type})",
-                    "success",
-                )
+                    # Defer UI updates to next render cycle to avoid race conditions
+                    # This prevents RichLog from exposing internal cursor during concurrent updates
+                    chat_display.add_system_message(
+                        f"Agent '{agent_name}' ({adapter_type}) added successfully",
+                        "success",
+                    )
+                    status_bar.update_agent_state(self.active_agents, agent_name)
+                    status_bar.show_success(
+                        f"Agent '{agent_name}' added and activated"
+                    )
 
-                # Switch to the new agent (reactive update)
-                self.current_agent = agent_name
-
-                # Use atomic update to immediately reflect the new state in status bar
-                # This avoids timing issues with multiple reactive property assignments
-                status_bar.update_agent_state(self.active_agents, agent_name)
-                status_bar.show_success(
-                    f"Agent '{agent_name}' added and activated"
-                )
+                self.call_later(_finalize_agent_add)
             else:
                 chat_display.add_error_message(
                     f"Failed to add agent '{agent_name}'"
@@ -513,11 +464,6 @@ class MultiAgentContainer(Container):
 
             await self._refresh_agent_list()
 
-            chat_display = self.query_one("#chat_display", ChatDisplay)
-            chat_display.add_system_message(
-                f"Agent '{agent_id}' registered successfully", "success"
-            )
-
             return True
 
         except Exception as e:
@@ -563,12 +509,6 @@ class MultiAgentContainer(Container):
     def get_active_agents(self) -> List[Dict[str, Any]]:
         """Get list of active agents."""
         return list(self.active_agents)
-
-    def refresh(
-        self, *, repaint: bool = True, layout: bool = False, recompose: bool = False
-    ) -> None:
-        """Refresh the widget."""
-        super().refresh(repaint=repaint, layout=layout, recompose=recompose)
 
     def _update_status_bar_after_init(self) -> None:
         """Update status bar after initialization is complete."""

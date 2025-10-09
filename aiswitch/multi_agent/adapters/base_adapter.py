@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Dict
 
 from ..types import Task, TaskResult
 
@@ -25,11 +24,6 @@ class BaseAdapter(ABC):
         """Execute a task and return the result."""
         pass
 
-    @abstractmethod
-    async def set_env(self, preset: str, env_vars: Dict[str, str]) -> bool:
-        """Switch environment variables."""
-        pass
-
     async def close(self) -> None:
         """Clean up adapter resources."""
         self._initialized = False
@@ -37,3 +31,10 @@ class BaseAdapter(ABC):
     def is_initialized(self) -> bool:
         """Check if adapter is initialized."""
         return self._initialized
+
+    @abstractmethod
+    def change_preset(self, preset):
+        pass
+
+
+DEFAULT_PRESET = "ds"

@@ -17,12 +17,18 @@ from claude_agent_sdk import (
     CLIJSONDecodeError,
 )
 
-from .base_adapter import BaseAdapter
+from aiswitch import PresetManager
+from .base_adapter import BaseAdapter, DEFAULT_PRESET
 from ..types import Task, TaskResult
 
 
 class ClaudeAdapter(BaseAdapter):
     """Claude adapter using claude-agent-sdk."""
+
+    def change_preset(self, preset):
+        preset_manager = PresetManager()
+        preset_config, _, _ = preset_manager.use_preset(preset, apply_to_env=False)
+        self.env_vars = preset_config.variables or {}
 
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__("claude")
@@ -33,6 +39,9 @@ class ClaudeAdapter(BaseAdapter):
 
     async def initialize(self) -> bool:
         """Initialize Claude adapter with persistent ClaudeSDKClient."""
+        preset = self.config.get("preset", DEFAULT_PRESET)
+        self.change_preset(preset)
+
         options = ClaudeAgentOptions(env=self.env_vars.copy())
         self._current_options = options
 
@@ -40,7 +49,7 @@ class ClaudeAdapter(BaseAdapter):
         try:
             self.client = ClaudeSDKClient(options=options)
             # Enter the async context manager
-            await self.client.__aenter__()
+            await self.client.connect()
         except Exception as e:
             raise RuntimeError(f"Failed to create ClaudeSDKClient: {e}")
 
@@ -157,46 +166,12 @@ class ClaudeAdapter(BaseAdapter):
                 duration=time.time() - start_time,
             )
 
-    async def set_env(self, preset: str, env_vars: Dict[str, str]) -> bool:
-        """Switch environment variables by recreating the client with new environment."""
-        try:
-            # Update environment variables
-            self.env_vars = env_vars.copy()
-
-            # # Apply to process environment for SDK compatibility
-            # for key, value in self.env_vars.items():
-            #     os.environ[key] = value
-            #
-            # # Handle ANTHROPIC_AUTH_TOKEN -> ANTHROPIC_API_KEY mapping
-            # if "ANTHROPIC_AUTH_TOKEN" in self.env_vars and "ANTHROPIC_API_KEY" not in self.env_vars:
-            #     os.environ["ANTHROPIC_API_KEY"] = self.env_vars["ANTHROPIC_AUTH_TOKEN"]
-
-            # Close existing client if any
-            if self.client:
-                try:
-                    await self.client.__aexit__(None, None, None)
-                except Exception:
-                    pass
-
-            # Create new client with updated environment
-            new_options = ClaudeAgentOptions(env=self.env_vars.copy())
-            self._current_options = new_options
-            self.client = ClaudeSDKClient(options=new_options)
-            await self.client.__aenter__()
-
-            return True
-        except Exception as e:
-            print(f"Failed to set env: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-
     async def close(self) -> None:
         """Clean up ClaudeSDKClient resources."""
         if self.client:
             try:
                 # Exit the async context manager
-                await self.client.__aexit__(None, None, None)
+                await self.client.disconnect()
             except Exception:
                 # Ignore errors during cleanup
                 pass

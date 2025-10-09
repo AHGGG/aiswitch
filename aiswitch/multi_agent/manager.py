@@ -50,7 +50,7 @@ class MultiAgentManager:
                 "agent_instance": adapter_instance,
                 "adapter_type": adapter_type,
                 "status": AgentStatus.IDLE,
-                "config": config or {},
+                "config": config or {},  # config["preset"] = "xx"
                 "task_count": 0,
                 "metadata": {},
             }
@@ -183,30 +183,15 @@ class MultiAgentManager:
         except Exception as e:
             return TaskResult(task_id=task.id, success=False, error=str(e))
 
-    async def switch_agent_env(self, agent_id: str, preset: str) -> bool:
+    async def switch_agent_env(self, agent_id: str, preset: str):
         """Switch environment for a specific agent."""
         if agent_id not in self.agents:
             raise ValueError(f"Agent {agent_id} not found")
 
         agent_info = self.agents[agent_id]
-        agent_instance = agent_info["agent_instance"]
-
-        # Load environment variables for preset
-        env_vars = self._get_preset_env_vars(preset)
-
-        try:
-            success = await agent_instance.set_env(preset, env_vars)
-            if success:
-                agent_info["metadata"]["current_preset"] = preset
-            return success
-        except Exception:
-            return False
-
-    def _get_preset_env_vars(self, preset: str) -> Dict[str, str]:
-        """Get environment variables for a preset."""
-        preset_manager = PresetManager()
-        preset_config, _, _ = preset_manager.use_preset(preset, apply_to_env=False)
-        return preset_config.variables or {}
+        agent_instance = self.agents[agent_id]["agent_instance"]
+        agent_instance.change_preset(preset)
+        agent_info["metadata"]["current_preset"] = preset
 
     def get_agent_status(self, agent_id: str) -> Dict[str, Any]:
         """Get status of a specific agent."""
@@ -264,29 +249,6 @@ class MultiAgentManager:
     ) -> None:
         """Register a new adapter type."""
         self.adapters[adapter_type] = adapter_class
-
-    async def health_check(self) -> Dict[str, Any]:
-        """Perform health check on all agents."""
-        health_info = {
-            "total_agents": len(self.agents),
-            "healthy_agents": 0,
-            "error_agents": 0,
-            "agents": {},
-        }
-
-        for agent_id, agent_info in self.agents.items():
-            status = agent_info["status"]
-            health_info["agents"][agent_id] = {
-                "status": status.value,
-                "healthy": status not in [AgentStatus.ERROR, AgentStatus.STOPPING],
-            }
-
-            if health_info["agents"][agent_id]["healthy"]:
-                health_info["healthy_agents"] += 1
-            else:
-                health_info["error_agents"] += 1
-
-        return health_info
 
     async def cleanup(self) -> None:
         """Clean up all agents and resources."""
