@@ -191,6 +191,8 @@ class MultiAgentManager:
         agent_info = self.agents[agent_id]
         agent_instance = self.agents[agent_id]["agent_instance"]
         await agent_instance.change_preset(preset)
+        if isinstance(agent_instance, ClaudeAdapter):
+            await agent_instance.recreate_client()
         agent_info["metadata"]["current_preset"] = preset
 
     def get_agent_status(self, agent_id: str) -> Dict[str, Any]:

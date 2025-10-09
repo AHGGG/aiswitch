@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from typing import Any, Dict, List, Optional
 
@@ -36,6 +37,7 @@ class ClaudeAdapter(BaseAdapter):
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__("claude")
         self.config = config or {}
+        self._logger = logging.getLogger(__name__)
         self._current_options: ClaudeAgentOptions | None = None  # ClaudeAgentOptions, Track current options for reinitialization
         self.env_vars: Dict[str, str] = {}
         self.client: ClaudeSDKClient | None = None  # ClaudeSDKClient instance for continuous conversation
@@ -45,6 +47,7 @@ class ClaudeAdapter(BaseAdapter):
         """Initialize Claude adapter with persistent ClaudeSDKClient."""
         preset = self.config.get("preset", DEFAULT_PRESET)
         await self.change_preset(preset)
+        await self.recreate_client()
         return True
 
     async def change_preset(self, preset: str) -> None:
@@ -54,17 +57,16 @@ class ClaudeAdapter(BaseAdapter):
         self.env_vars = preset_config.variables or {}
         self.config["preset"] = preset
 
-        await self._recreate_client()
-        self._initialized = True
-
-    async def _recreate_client(self) -> None:
+    async def recreate_client(self) -> None:
         """Tear down and rebuild the ClaudeSDKClient with current env vars."""
+        print(f"enter recreate_client")
         await self._shutdown_client()
 
         options = ClaudeAgentOptions(
             env=self.env_vars.copy(),
             resume=self._session_id,
             continue_conversation=bool(self._session_id),
+            stderr=self._handle_client_stderr,
         )
         self._current_options = options
 
@@ -73,7 +75,6 @@ class ClaudeAdapter(BaseAdapter):
             await self.client.connect()
         except Exception as exc:
             self.client = None
-            self._initialized = False
             raise RuntimeError(f"Failed to create ClaudeSDKClient: {exc}")
 
     async def _shutdown_client(self) -> None:
@@ -83,20 +84,20 @@ class ClaudeAdapter(BaseAdapter):
 
         try:
             await self._safe_interrupt()
-        except Exception:
+        except Exception as e:
             # Interrupt best-effort; continue with disconnect
-            pass
+            print(f"Warning: Failed to interrupt Claude client: {e}")
 
         try:
             await self.client.disconnect()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warning: Failed to disconnect Claude client: {e}")
         finally:
             self.client = None
 
     async def execute_task(self, task: Task, timeout: float = 60.0) -> TaskResult:
         """Execute a task using persistent ClaudeSDKClient for continuous conversation."""
-        if not self._initialized or not self.client:
+        if not self.client:
             raise RuntimeError("Adapter not initialized or client not available")
 
         start_time = time.time()
@@ -235,6 +236,14 @@ class ClaudeAdapter(BaseAdapter):
             await self.client.interrupt()
         except Exception:
             pass
+
+    def _handle_client_stderr(self, line: str) -> None:
+        """Capture CLI stderr output so the SDK can't disturb the terminal cursor."""
+        text = line.strip()
+        if not text:
+            return
+        # Log at debug level to aid troubleshooting without polluting the TUI.
+        self._logger.debug("Claude CLI stderr: %s", text)
 
     def _extract_assistant_chunks(self, message: AssistantMessage) -> List[str]:
         chunks: List[str] = []
