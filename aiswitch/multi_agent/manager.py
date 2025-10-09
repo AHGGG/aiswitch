@@ -190,7 +190,7 @@ class MultiAgentManager:
 
         agent_info = self.agents[agent_id]
         agent_instance = self.agents[agent_id]["agent_instance"]
-        agent_instance.change_preset(preset)
+        await agent_instance.change_preset(preset)
         agent_info["metadata"]["current_preset"] = preset
 
     def get_agent_status(self, agent_id: str) -> Dict[str, Any]:

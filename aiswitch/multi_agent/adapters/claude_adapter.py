@@ -33,36 +33,66 @@ from ..types import Task, TaskResult
 class ClaudeAdapter(BaseAdapter):
     """Claude adapter using claude-agent-sdk."""
 
-    def change_preset(self, preset):
-        preset_manager = PresetManager()
-        preset_config, _, _ = preset_manager.use_preset(preset, apply_to_env=False)
-        self.env_vars = preset_config.variables or {}
-
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__("claude")
         self.config = config or {}
         self._current_options: ClaudeAgentOptions | None = None  # ClaudeAgentOptions, Track current options for reinitialization
         self.env_vars: Dict[str, str] = {}
         self.client: ClaudeSDKClient | None = None  # ClaudeSDKClient instance for continuous conversation
+        self._session_id: str | None = None
 
     async def initialize(self) -> bool:
         """Initialize Claude adapter with persistent ClaudeSDKClient."""
         preset = self.config.get("preset", DEFAULT_PRESET)
-        self.change_preset(preset)
+        await self.change_preset(preset)
+        return True
 
-        options = ClaudeAgentOptions(env=self.env_vars.copy())
+    async def change_preset(self, preset: str) -> None:
+        """Load preset variables and rebuild the Claude client."""
+        preset_manager = PresetManager()
+        preset_config, _, _ = preset_manager.use_preset(preset, apply_to_env=False)
+        self.env_vars = preset_config.variables or {}
+        self.config["preset"] = preset
+
+        await self._recreate_client()
+        self._initialized = True
+
+    async def _recreate_client(self) -> None:
+        """Tear down and rebuild the ClaudeSDKClient with current env vars."""
+        await self._shutdown_client()
+
+        options = ClaudeAgentOptions(
+            env=self.env_vars.copy(),
+            resume=self._session_id,
+            continue_conversation=bool(self._session_id),
+        )
         self._current_options = options
 
-        # Create persistent ClaudeSDKClient for continuous conversation
         try:
             self.client = ClaudeSDKClient(options=options)
-            # Enter the async context manager
             await self.client.connect()
-        except Exception as e:
-            raise RuntimeError(f"Failed to create ClaudeSDKClient: {e}")
+        except Exception as exc:
+            self.client = None
+            self._initialized = False
+            raise RuntimeError(f"Failed to create ClaudeSDKClient: {exc}")
 
-        self._initialized = True
-        return True
+    async def _shutdown_client(self) -> None:
+        """Safely disconnect the existing Claude client if present."""
+        if not self.client:
+            return
+
+        try:
+            await self._safe_interrupt()
+        except Exception:
+            # Interrupt best-effort; continue with disconnect
+            pass
+
+        try:
+            await self.client.disconnect()
+        except Exception:
+            pass
+        finally:
+            self.client = None
 
     async def execute_task(self, task: Task, timeout: float = 60.0) -> TaskResult:
         """Execute a task using persistent ClaudeSDKClient for continuous conversation."""
@@ -72,8 +102,8 @@ class ClaudeAdapter(BaseAdapter):
         start_time = time.time()
 
         try:
-            # Send message to Claude (maintains conversation context)
-            await self.client.query(task.prompt)
+            session_id = self._session_id or "default"
+            await self.client.query(task.prompt, session_id=session_id)
 
             # Receive response (streaming)
             response_chunks: List[str] = []
@@ -231,6 +261,7 @@ class ClaudeAdapter(BaseAdapter):
         if message.subtype == "init":
             session_id = message.data.get("session_id")
             if session_id:
+                self._session_id = session_id
                 metadata["session_id"] = session_id
         if message.subtype == "compact_boundary":
             metadata["compaction"] = {
@@ -249,6 +280,7 @@ class ClaudeAdapter(BaseAdapter):
             "num_turns": message.num_turns,
         }
         if message.session_id:
+            self._session_id = message.session_id
             metadata["session_id"] = message.session_id
         if message.total_cost_usd is not None:
             metadata["total_cost_usd"] = message.total_cost_usd

@@ -33,7 +33,8 @@ class BaseAdapter(ABC):
         return self._initialized
 
     @abstractmethod
-    def change_preset(self, preset):
+    async def change_preset(self, preset: str) -> None:
+        """Apply a new preset configuration."""
         pass
 
 

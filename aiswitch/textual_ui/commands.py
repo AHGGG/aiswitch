@@ -439,4 +439,8 @@ def switch_preset(app: Any, preset: str) -> None:
     """Switch to a specific preset."""
     from .events import PresetChanged
 
-    app.post_message(PresetChanged(preset))
+    try:
+        container = app.query_one("#main_container", MultiAgentContainer)
+        container.post_message(PresetChanged(preset))
+    except Exception:
+        app.post_message(PresetChanged(preset))

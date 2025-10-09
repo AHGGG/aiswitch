@@ -290,6 +290,9 @@ class MultiAgentContainer(Container):
                         "success",
                     )
                     status_bar.update_agent_state(self.active_agents, agent_name)
+                    if preset:
+                        self.current_preset = preset
+                        status_bar.set_preset(preset)
                     status_bar.show_success(
                         f"Agent '{agent_name}' added and activated"
                     )
@@ -452,6 +455,10 @@ class MultiAgentContainer(Container):
                 except Exception as e:
                     chat_display.add_error_message(
                         f"Failed to apply preset to {agent_id}: {e}"
+                    )
+                else:
+                    chat_display.add_system_message(
+                        f"Preset '{preset}' applied to {agent_id}", "success"
                     )
 
             if success_count > 0:
