@@ -11,6 +11,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Label, Select, Static
 
+from .components import MultiAgentContainer
 from .events import AgentAddRequested
 
 
@@ -181,7 +182,7 @@ def show_add_agent_dialog(app: Any) -> None:
             existing_agents = []
             container = None
             try:
-                container = app.query_one("#main_container")
+                container = app.query_one("#main_container", MultiAgentContainer)
                 existing_agents = [
                     a.get("agent_id", "") for a in container.get_active_agents()
                 ]
@@ -305,7 +306,7 @@ class AgentManagementProvider(Provider):
     def _get_current_agents(self) -> list[dict[str, Any]]:
         """Get list of current agents."""
         try:
-            container = self.app.query_one("#main_container")
+            container = self.app.query_one("#main_container", MultiAgentContainer)
             return container.get_active_agents()
         except Exception:
             return []
@@ -317,7 +318,7 @@ def switch_agent(app: Any, agent_id: str) -> None:
 
     # Post event to container, not app (events bubble up, not down)
     try:
-        container = app.query_one("#main_container")
+        container = app.query_one("#main_container", MultiAgentContainer)
         container.post_message(AgentSelected(agent_id))
     except Exception:
         pass
@@ -326,7 +327,7 @@ def switch_agent(app: Any, agent_id: str) -> None:
 async def remove_agent(app: Any, agent_id: str) -> None:
     """Remove a specific agent."""
     try:
-        container = app.query_one("#main_container")
+        container = app.query_one("#main_container", MultiAgentContainer)
         await container.unregister_agent(agent_id)
     except Exception as e:
         # Show error in chat
@@ -375,12 +376,14 @@ class PresetManagementProvider(Provider):
     def _get_available_presets(self) -> list[str]:
         """Get list of available presets."""
         try:
-            from ...preset import PresetManager
+            from ..preset import PresetManager
 
             preset_manager = PresetManager()
             presets = preset_manager.list_presets()
             # Return list of preset names
-            return [name for name, _ in presets]
+            presets_ = [name for name, _ in presets]
+            print(f"presets_: {presets_}")
+            return presets_
         except Exception:
             return ["ds", "88cc", "ar"]
 

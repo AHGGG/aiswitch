@@ -528,8 +528,3 @@ class MultiAgentContainer(Container):
         except NoMatches:
             # Try again after a short delay
             self.set_timer(0.1, self._update_status_bar_after_init)
-
-    async def refresh_state(self) -> None:
-        """Refresh the container state."""
-        await self._refresh_agent_list()
-        self._sync_component_states()
