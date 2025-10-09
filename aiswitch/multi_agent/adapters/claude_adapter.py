@@ -95,8 +95,6 @@ class ClaudeAdapter(BaseAdapter):
                     elif isinstance(response_message, ResultMessage):
                         result_message = response_message
                         metadata.update(self._extract_result_metadata(response_message))
-                        if response_message.result and response_message.result.strip():
-                            response_chunks.append(response_message.result.strip())
                         break
                     elif isinstance(response_message, UserMessage):
                         rendered = self._render_user_message(response_message)
