@@ -34,7 +34,7 @@ class Task:
     system_prompt: Optional[str] = None
     max_tokens: Optional[int] = None
     temperature: Optional[float] = None
-    timeout: float = 30.0
+    timeout: float = 60.0
 
 
 @dataclass

@@ -20,3 +20,5 @@ CLAUDE.md
 .aiswitch.yaml
 .claude
 .idea
+docs/textual
+docs/claude-agent-sdk-docs

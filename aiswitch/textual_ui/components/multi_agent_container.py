@@ -23,6 +23,7 @@ from ..events import (
     CommandExecutionCompleted,
     AgentError,
     AgentAddRequested,
+    AgentResponseReceived,
 )
 from ...multi_agent import MultiAgentManager
 from ...multi_agent.adapters.base_adapter import DEFAULT_PRESET
@@ -229,6 +230,20 @@ class MultiAgentContainer(Container):
             # Use atomic update to ensure status bar reflects current state immediately
             status_bar = self.query_one("#status_bar", StatusBar)
             status_bar.update_agent_state(self.active_agents, event.agent_id)
+
+    @on(AgentResponseReceived)
+    async def handle_agent_response(self, event: AgentResponseReceived) -> None:
+        """Render agent or system responses raised from child components."""
+        chat_display = self.query_one("#chat_display", ChatDisplay)
+        status_bar = self.query_one("#status_bar", StatusBar)
+
+        if event.agent == "system":
+            level = event.metadata.get("level", "info")
+            chat_display.add_system_message(event.response, level)
+        else:
+            chat_display.add_agent_message(event.agent, event.response, event.metadata)
+
+        status_bar.increment_message_count()
 
     @on(ExecutionModeChanged)
     async def handle_execution_mode_changed(self, event: ExecutionModeChanged) -> None:

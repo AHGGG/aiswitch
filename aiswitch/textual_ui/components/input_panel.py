@@ -31,7 +31,6 @@ class InputPanel(Container):
         with Horizontal():
             yield Input(placeholder="Type your message...", id="main_input")
             yield Button("Send", id="send_btn", variant="primary")
-            yield Button("⚙️", id="settings_btn", variant="default")
 
     async def on_mount(self) -> None:
         """Focus input when mounted."""
@@ -102,12 +101,6 @@ class InputPanel(Container):
                 self.post_message(UserMessageSubmitted(message, self.current_agent))
 
             input_widget.value = ""
-
-    @on(Button.Pressed, "#settings_btn")
-    async def handle_settings_button(self, event: Button.Pressed) -> None:
-        """Handle settings button click."""
-        # TODO: Implement settings modal
-        pass
 
     @on(Input.Changed, "#main_input")
     def handle_input_change(self, event: Input.Changed) -> None:

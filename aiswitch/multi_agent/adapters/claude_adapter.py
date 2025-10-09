@@ -64,7 +64,7 @@ class ClaudeAdapter(BaseAdapter):
         self._initialized = True
         return True
 
-    async def execute_task(self, task: Task, timeout: float = 30.0) -> TaskResult:
+    async def execute_task(self, task: Task, timeout: float = 60.0) -> TaskResult:
         """Execute a task using persistent ClaudeSDKClient for continuous conversation."""
         if not self._initialized or not self.client:
             raise RuntimeError("Adapter not initialized or client not available")
@@ -105,7 +105,7 @@ class ClaudeAdapter(BaseAdapter):
                         if rendered:
                             response_chunks.append(rendered)
 
-            await asyncio.wait_for(consume_messages(), timeout=timeout)
+            await consume_messages()
 
             duration = time.time() - start_time
             metadata.update({"chunks": len(response_chunks), "duration": duration})
